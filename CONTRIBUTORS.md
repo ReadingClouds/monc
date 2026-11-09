@@ -6,3 +6,5 @@
 | trjr            | Todd Jones      | University of Reading            | 2026-05-01 |
 | yaswant         | Yaswant Pradhan | Met Office                       | 2026-07-17 |
 | hiker           | Joerg Henrichs  | Bureau of Meteorology, Australia | 2026-07-30 |
+| ReadingClouds   | Peter Clark     | University of Reading            | 2026-11-09 |
+
