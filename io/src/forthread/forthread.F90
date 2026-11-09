@@ -10,6 +10,8 @@ contains
 
   integer function forthread_init()
     integer :: info
+    
+    forthread_init = 0
 
     if (l_thoff) return
 
@@ -24,6 +26,8 @@ contains
 
   integer function forthread_destroy()
     integer :: info
+
+    forthread_destroy = 0
 
     if (l_thoff) return
 
@@ -44,6 +48,8 @@ contains
     procedure(i_start_routine), bind(c), pointer :: start_routinep
     type(ptr_t_run), dimension(:), pointer       :: tmp
     type(t_run), pointer :: runp
+
+    forthread_create = 0
 
     if (l_thoff) return
 
@@ -77,6 +83,8 @@ contains
 
     integer :: info
 
+    forthread_detach = 0
+
     if (l_thoff) return
 
     call thread_detach(thread_id,info)
@@ -87,6 +95,8 @@ contains
     integer, intent(in) :: t1, t2
 
     integer :: info
+
+    forthread_equal = 0
 
     if (l_thoff) return
 
@@ -109,6 +119,8 @@ contains
 
     type(c_ptr)                 :: value_ptr
 
+    forthread_join = 0
+
     if (l_thoff) return
 
     call thread_join(thread_id,value_ptr,info)
@@ -121,6 +133,8 @@ contains
 
     integer :: info
 
+    forthread_cancel = 0
+    
     if (l_thoff) return
 
     call thread_cancel(thread_id,info)
@@ -132,6 +146,8 @@ contains
 
     integer :: info
 
+    forthread_kill = 0
+
     if (l_thoff) return
 
     call thread_kill(thread_id,sig,info)
@@ -142,6 +158,8 @@ contains
     integer, intent(out) :: once_ctrl_id
 
     integer :: info
+
+    forthread_once_init = 0
 
     if (l_thoff) return
 
@@ -157,6 +175,8 @@ contains
 
     integer :: info
 
+    forthread_once = 0
+
     if (l_thoff) return
 
     call thread_once(once_ctrl_id,c_funloc(init_routine),info)
@@ -170,6 +190,8 @@ contains
 
     integer :: info
 
+    forthread_getconcurrency = 0
+
     if (l_thoff) return
 
     call thread_getconcurrency(currlevel,info)
@@ -181,6 +203,8 @@ contains
 
     integer :: info
 
+    forthread_setconcurrency = 0
+    
     if (l_thoff) return
 
     call thread_setconcurrency(newlevel,info)
@@ -193,6 +217,8 @@ contains
     integer, intent(out) :: clock_id
 
     integer :: info
+
+    forthread_getcpuclockid = 0
 
     if (l_thoff) return
 
@@ -208,6 +234,8 @@ contains
 
     integer :: info
 
+    forthread_getschedparam = 0
+
     if (l_thoff) return
 
     call thread_getschedparam(thread,policy,param,info)
@@ -220,6 +248,8 @@ contains
 
     integer :: info
 
+    forthread_setschedparam = 0
+
     if (l_thoff) return
 
     call thread_setschedparam(thread,policy,param,info)
@@ -231,6 +261,8 @@ contains
     integer, intent(in) :: thread, prio
 
     integer :: info
+
+    forthread_setschedprio = 0
 
     if (l_thoff) return
 
@@ -245,6 +277,8 @@ contains
 
     integer :: info
 
+    forthread_setcancelstate = 0
+
     if (l_thoff) return
 
     call thread_setcancelstate(state,oldstate,info)
@@ -256,6 +290,8 @@ contains
     integer, intent(out) :: oldctype
 
     integer :: info
+
+    forthread_setcanceltype = 0
 
     if (l_thoff) return
 
@@ -285,6 +321,8 @@ contains
     ! TODO test in other compilers
 
     integer :: info
+    
+    forthread_key_create = 0
 
     if (l_thoff) return
 
@@ -308,6 +346,8 @@ contains
     integer, intent(in) :: mutex_id
 
     integer :: info
+    
+    forthread_mutex_destroy = 0
 
     if (l_thoff) return
 
@@ -320,6 +360,8 @@ contains
     integer, intent(in) :: attr_id
 
     integer :: info
+    
+    forthread_mutex_init = 0
 
     if (l_thoff) return
 
@@ -331,6 +373,8 @@ contains
     integer, intent(in) :: mutex_id
 
     integer :: info
+    
+    forthread_mutex_lock = 0
 
     if (l_thoff) return
 
@@ -342,6 +386,8 @@ contains
     integer, intent(in) :: mutex_id
 
     integer :: info
+    
+    forthread_mutex_trylock = 0
 
     if (l_thoff) return
 
@@ -354,6 +400,8 @@ contains
 
     integer :: info
 
+    forthread_mutex_unlock = 0 
+
     call thread_mutex_unlock(mutex_id,info)
     forthread_mutex_unlock=info
   end function forthread_mutex_unlock
@@ -363,6 +411,8 @@ contains
     integer, intent(out) :: prioceiling
 
     integer :: info
+    
+    forthread_mutex_getprioceiling = 0
 
     if (l_thoff) return
 
@@ -375,6 +425,8 @@ contains
     integer, intent(out) :: old_ceiling
 
     integer :: info
+    
+    forthread_mutex_setprioceiling = 0
 
     if (l_thoff) return
 
@@ -388,6 +440,8 @@ contains
     type(timespec), intent(in) :: abs_timeout
 
     integer :: info
+    
+    forthread_mutex_timedlock = 0
 
     if (l_thoff) return
 
@@ -404,6 +458,8 @@ contains
     integer, intent(in) :: cond_id
 
     integer :: info
+    
+    forthread_cond_destroy = 0
 
     if (l_thoff) return
 
@@ -416,6 +472,8 @@ contains
     integer, intent(in) :: attr_id
 
     integer :: info
+    
+    forthread_cond_init = 0
 
     if (l_thoff) return
 
@@ -428,6 +486,8 @@ contains
     type(timespec), intent(in) :: abstime
 
     integer :: info
+    
+    forthread_cond_timedwait = 0
 
     if (l_thoff) return
 
@@ -439,6 +499,8 @@ contains
     integer, intent(in) :: cond_id, mutex_id
 
     integer :: info
+    
+    forthread_cond_wait = 0
 
     if (l_thoff) return
 
@@ -450,6 +512,8 @@ contains
     integer, intent(in) :: cond_id
 
     integer :: info
+    
+    forthread_cond_broadcast = 0
 
     if (l_thoff) return
 
@@ -461,6 +525,8 @@ contains
     integer, intent(in) :: cond_id
 
     integer :: info
+    
+    forthread_cond_signal = 0
 
     if (l_thoff) return
 
@@ -477,6 +543,8 @@ contains
     integer, intent(in) :: barrier_id
 
     integer :: info
+    
+    forthread_barrier_destroy = 0
 
     if (l_thoff) return
 
@@ -489,6 +557,8 @@ contains
     integer, intent(in) :: attr_id, tcount
 
     integer :: info
+    
+    forthread_barrier_init = 0
 
     if (l_thoff) return
 
@@ -500,6 +570,8 @@ contains
     integer, intent(in) :: barrier_id
 
     integer :: info
+    
+    forthread_barrier_wait = 0
 
     if (l_thoff) return
 
@@ -517,6 +589,8 @@ contains
     integer, intent(in) :: spinlock_id
 
     integer :: info
+    
+    forthread_spin_destroy = 0
 
     if (l_thoff) return
 
@@ -529,6 +603,8 @@ contains
     integer, intent(in) :: pshared
 
     integer :: info
+    
+    forthread_spin_init = 0
 
     if (l_thoff) return
 
@@ -540,6 +616,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_spin_lock = 0
 
     if (l_thoff) return
 
@@ -551,6 +629,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_spin_trylock = 0
 
     if (l_thoff) return
 
@@ -562,6 +642,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_spin_unlock = 0
 
     if (l_thoff) return
 
@@ -580,6 +662,8 @@ contains
     integer, intent(in) :: rwlock_id
 
     integer :: info
+    
+    forthread_rwlock_destroy = 0
 
     if (l_thoff) return
 
@@ -592,6 +676,8 @@ contains
     integer, intent(in) :: attr_id
 
     integer :: info
+    
+    forthread_rwlock_init = 0
 
     if (l_thoff) return
 
@@ -603,6 +689,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_rwlock_rdlock = 0
 
     if (l_thoff) return
 
@@ -614,6 +702,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_rwlock_tryrdlock = 0
 
     if (l_thoff) return
 
@@ -625,6 +715,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_rwlock_wrlock = 0
 
     if (l_thoff) return
 
@@ -636,6 +728,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer :: info
+    
+    forthread_rwlock_trywrlock = 0
 
     if (l_thoff) return
 
@@ -647,6 +741,8 @@ contains
     integer, intent(in) :: lock_id
 
     integer  :: info
+    
+    forthread_rwlock_unlock = 0
 
     if (l_thoff) return
 
@@ -660,6 +756,8 @@ contains
     type(timespec), intent(in) :: abs_timeout
 
     integer :: info
+    
+    forthread_rwlock_timedrdlock = 0
 
     if (l_thoff) return
 
@@ -672,6 +770,8 @@ contains
     type(timespec), intent(in) :: abs_timeout
 
     integer :: info
+    
+    forthread_rwlock_timedwrlock = 0
 
     if (l_thoff) return
 
@@ -688,6 +788,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_attr_destroy = 0
 
     if (l_thoff) return
 
@@ -699,6 +801,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_attr_init = 0
 
     if (l_thoff) return
 
@@ -711,6 +815,8 @@ contains
     integer, intent(out) :: detachstate
 
     integer  :: info
+    
+    forthread_attr_getdetachstate = 0
 
     if (l_thoff) return
 
@@ -721,6 +827,8 @@ contains
   integer function forthread_attr_setdetachstate(attr,detachstate)
     integer, intent(in)  :: attr, detachstate
     integer :: info
+    
+    forthread_attr_setdetachstate = 0
 
     if (l_thoff) return
 
@@ -733,6 +841,8 @@ contains
     integer(size_t), intent(out) :: guardsize
 
     integer :: info
+    
+    forthread_attr_getguardsize = 0
 
     if (l_thoff) return
 
@@ -745,6 +855,8 @@ contains
     integer(size_t), intent(in) :: guardsize
 
     integer :: info
+    
+    forthread_attr_setguardsize = 0
 
     if (l_thoff) return
 
@@ -757,6 +869,8 @@ contains
     integer, intent(out) :: inheritsched
 
     integer :: info
+    
+    forthread_attr_getinheritsched = 0
 
     if (l_thoff) return
 
@@ -769,6 +883,8 @@ contains
     integer, intent(in) :: inheritsched
 
     integer :: info
+    
+    forthread_attr_setinheritsched = 0
 
     if (l_thoff) return
 
@@ -781,6 +897,8 @@ contains
     type(sched_param), intent(out) :: param
 
     integer :: info
+    
+    forthread_attr_getschedparam = 0
 
     if (l_thoff) return
 
@@ -793,6 +911,8 @@ contains
     type(sched_param), intent(in) :: param
 
     integer :: info
+    
+    forthread_attr_setschedparam = 0
 
     if (l_thoff) return
 
@@ -805,6 +925,8 @@ contains
     integer, intent(out) :: policy
 
     integer :: info
+    
+    forthread_attr_getschedpolicy = 0
 
     if (l_thoff) return
 
@@ -816,6 +938,8 @@ contains
     integer, intent(in) :: attr, policy
 
     integer :: info
+    
+    forthread_attr_setschedpolicy = 0
 
     if (l_thoff) return
 
@@ -828,6 +952,8 @@ contains
     integer, intent(out) :: scope
 
     integer :: info
+    
+    forthread_attr_getscope = 0
 
     if (l_thoff) return
 
@@ -839,6 +965,8 @@ contains
     integer, intent(in) :: attr, scope
 
     integer :: info
+    
+    forthread_attr_setscope = 0
 
     if (l_thoff) return
 
@@ -851,6 +979,8 @@ contains
     integer(size_t), intent(out) :: stacksize
 
     integer :: info
+    
+    forthread_attr_getstacksize = 0
 
     if (l_thoff) return
 
@@ -863,6 +993,8 @@ contains
     integer(size_t), intent(in) :: stacksize
 
     integer :: info
+    
+    forthread_attr_setstacksize = 0
 
     if (l_thoff) return
 
@@ -878,6 +1010,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_mutexattr_destroy = 0
 
     if (l_thoff) return
 
@@ -889,6 +1023,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_mutexattr_init = 0
 
     if (l_thoff) return
 
@@ -901,6 +1037,8 @@ contains
     integer, intent(out) :: pshared
 
     integer :: info
+    
+    forthread_mutexattr_getpshared = 0
 
     if (l_thoff) return
 
@@ -912,6 +1050,8 @@ contains
     integer       , intent(in)      :: attr
     integer       , intent(in)      :: pshared
     integer           :: info
+    
+    forthread_mutexattr_setpshared = 0
 
     if (l_thoff) return
 
@@ -924,6 +1064,8 @@ contains
     integer, intent(out) :: prioceiling
 
     integer :: info
+    
+    forthread_mutexattr_getprioceiling = 0
 
     if (l_thoff) return
 
@@ -935,6 +1077,8 @@ contains
     integer, intent(in) :: attr, prioceiling
 
     integer :: info
+    
+    forthread_mutexattr_setprioceiling = 0
 
     if (l_thoff) return
 
@@ -947,6 +1091,8 @@ contains
     integer, intent(out) :: protocol
 
     integer :: info
+    
+    forthread_mutexattr_getprotocol = 0
 
     if (l_thoff) return
 
@@ -958,6 +1104,8 @@ contains
     integer, intent(in) :: attr, protocol
 
     integer :: info
+    
+    forthread_mutexattr_setprotocol = 0
 
     if (l_thoff) return
 
@@ -970,6 +1118,8 @@ contains
     integer, intent(out) :: mtype
 
     integer :: info
+    
+    forthread_mutexattr_gettype = 0
 
     if (l_thoff) return
 
@@ -981,6 +1131,8 @@ contains
     integer, intent(in) :: attr, mtype
 
     integer :: info
+    
+    forthread_mutexattr_settype = 0
 
     if (l_thoff) return
 
@@ -996,6 +1148,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_condattr_destroy = 0
 
     if (l_thoff) return
 
@@ -1007,6 +1161,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_condattr_init = 0
 
     if (l_thoff) return
 
@@ -1019,6 +1175,8 @@ contains
     integer, intent(out) :: pshared
 
     integer :: info
+    
+    forthread_condattr_getpshared = 0
 
     if (l_thoff) return
 
@@ -1030,6 +1188,8 @@ contains
     integer, intent(in) :: attr, pshared
 
     integer :: info
+    
+    forthread_condattr_setpshared = 0
 
     if (l_thoff) return
 
@@ -1043,6 +1203,8 @@ contains
     integer, intent(out) :: clock_id
 
     integer :: info
+    
+    forthread_condattr_getclock = 0
 
     if (l_thoff) return
 
@@ -1055,6 +1217,8 @@ contains
     integer, intent(in) :: clock_id
 
     integer :: info
+    
+    forthread_condattr_setclock = 0
 
     if (l_thoff) return
 
@@ -1070,6 +1234,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_barrierattr_destroy = 0
 
     if (l_thoff) return
 
@@ -1081,6 +1247,8 @@ contains
     integer, intent(in) :: attr
 
     integer :: info
+    
+    forthread_barrierattr_init = 0
 
     if (l_thoff) return
 
@@ -1093,6 +1261,8 @@ contains
     integer, intent(out) :: pshared
 
     integer :: info
+    
+    forthread_barrierattr_getpshared = 0
 
     if (l_thoff) return
 
@@ -1103,6 +1273,8 @@ contains
   integer function forthread_barrierattr_setpshared(attr,pshared)
     integer, intent(in) :: attr, pshared
     integer :: info
+    
+    forthread_barrierattr_setpshared = 0
 
     if (l_thoff) return
 
@@ -1118,6 +1290,8 @@ contains
   integer function forthread_rwlockattr_destroy(attr)
     integer, intent(in) :: attr
     integer :: info
+    
+    forthread_rwlockattr_destroy = 0
 
     if (l_thoff) return
 
@@ -1128,6 +1302,8 @@ contains
   integer function forthread_rwlockattr_init(attr)
     integer, intent(in) :: attr
     integer :: info
+    
+    forthread_rwlockattr_init = 0
 
     if (l_thoff) return
 
@@ -1139,6 +1315,8 @@ contains
     integer, intent(in) :: attr
     integer, intent(out) :: pshared
     integer :: info
+    
+    forthread_rwlockattr_getpshared = 0
 
     if (l_thoff) return
 
@@ -1149,6 +1327,8 @@ contains
   integer function forthread_rwlockattr_setpshared(attr,pshared)
     integer, intent(in) :: attr, pshared
     integer :: info
+    
+    forthread_rwlockattr_setpshared = 0
 
     if (l_thoff) return
 
