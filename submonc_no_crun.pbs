@@ -1,10 +1,11 @@
 #!/bin/bash --login
-#PBS -N MONC
-#PBS -l select=6
-#PBS -l walltime=03:00:00
+#PBS -N MONC_single
+#PBS -l select=1:ncpus=72
+#PBS -l walltime=01:15:00
 #PBS -j oe
-#PBS -P monc
-#PBS -q normal
+#PBS -q collab
+### #PBS -P <project>
+
 
 ##############################################################
 #### THIS IS AN EXAMPLE SCRIPT TO DEMONSTRATE HOW TO      ####
@@ -15,9 +16,6 @@
 ##############################################################
 
 echo Starting job
-
-# Allow multi-threading on cray
-export MPICH_MAX_THREAD_SAFETY=multiple
 
 # Make sure any symbolic links are resolved to absolute path
 export PBS_O_WORKDIR=$(readlink -f $PBS_O_WORKDIR)
@@ -31,7 +29,8 @@ cd $PBS_O_WORKDIR
 export OMP_NUM_THREADS=1
 
 # set env variables for submission command
-config_path='testcases/radiative_convective_equilibrium/RCE_MO_cray.mcf'
+config_path='testcases/radiative_convective_equilibrium/RCE_casim_socrates.mcf'
 checkpoint_fn="checkpoint_files/RCE_dump.nc"
 
-aprun -n 192 -N 32 ./build/bin/monc_driver.exe --config=$config_path  --checkpoint_file=$checkpoint_fn &> monc_stdout/output_RCE_dump_1
+NPES=$(wc -l < "$PBS_NODEFILE")
+mpiexec -n ${NPES} --line-buffer ./build/bin/monc_driver.exe --config=$config_path  --checkpoint_file=$checkpoint_fn &> monc_stdout/output_RCE_dump_1

@@ -122,7 +122,8 @@ contains
 
     integer :: k
 
-    if (.not. is_component_enabled(current_state%options_database, "smagorinsky")) then
+    if (.not. is_component_enabled(current_state%options_database, "smagorinsky") &
+       .and. .not. is_component_enabled(current_state%options_database, "circle_a")) then
        call log_master_log(LOG_ERROR, "Subgrid model diags requested but subgrid model not enabled - check config")
     end if
 
@@ -219,7 +220,7 @@ contains
     target_y_index=jcol-current_state%local_grid%halo_size(Y_INDEX)
     target_x_index=icol-current_state%local_grid%halo_size(X_INDEX)
 
-      if (current_state%first_timestep_column) then
+    if (current_state%first_timestep_column) then
        sed_tot(:)      = 0.0_DEFAULT_PRECISION 
        ssub_tot(:)     = 0.0_DEFAULT_PRECISION 
        buoysg_tot(:)   = 0.0_DEFAULT_PRECISION 
@@ -256,7 +257,26 @@ contains
        endif
     end if
 
-      if (.not. current_state%halo_column) then
+    if (.not. current_state%halo_column) then
+
+! Level 1 wind speed - needed in various places
+
+       U_1=SQRT(current_state%u%data(2,jcol,icol) * &
+                current_state%u%data(2,jcol,icol) + &
+                current_state%v%data(2,jcol,icol) * &
+                current_state%v%data(2,jcol,icol))
+       U_1_bar=SQRT(current_state%global_grid%configuration%vertical%olubar(2)*&
+                    current_state%global_grid%configuration%vertical%olubar(2)+&
+                    current_state%global_grid%configuration%vertical%olvbar(2)*&
+                    current_state%global_grid%configuration%vertical%olvbar(2))
+
+       rho(:) = current_state%global_grid%configuration%vertical%rho(:)
+
+! Buoyancy coefficient on u (zn) levels
+! note: this is not official MONC elsewhere
+       do k=1, current_state%local_grid%size(Z_INDEX)
+         buoy_cof(k)=G/current_state%global_grid%configuration%vertical%thref(k) 
+       end do
     
        do k=2,current_state%local_grid%size(Z_INDEX)-1
 
@@ -265,230 +285,322 @@ contains
        
 #ifdef U_ACTIVE    
       ! Average over 2 points W but 0.5 cancels 2
-         S11(k)=current_state%global_grid%configuration%horizontal%cx*(&
-           (current_state%u%data(k+1, jcol, icol)-&
-           current_state%u%data(k+1, jcol, icol-1))+&
-           (current_state%u%data(k, jcol, icol)-&
-           current_state%u%data(k, jcol, icol-1)))
+         S11(k)=current_state%global_grid%configuration%horizontal%cx * &
+                ((current_state%u%data(k+1, jcol, icol  ) -             &
+                  current_state%u%data(k+1, jcol, icol-1) ) +           &
+                 (current_state%u%data(k,   jcol, icol)   -             &
+                  current_state%u%data(k,   jcol, icol-1) ) )
 #else
          S11(k)=0.0_DEFAULT_PRECISION
 #endif
 #ifdef V_ACTIVE
       ! Average over 2 points W but 0.5 cancels 2
-         S22(k)=current_state%global_grid%configuration%horizontal%cy*(&
-           (current_state%v%data(k+1, jcol, icol)-&
-           current_state%v%data(k+1, jcol-1, icol))+&
-           (current_state%v%data(k, jcol, icol)-&
-           current_state%v%data(k, jcol-1, icol)))
+         S22(k)=current_state%global_grid%configuration%horizontal%cy * &
+                ((current_state%v%data(k+1, jcol,   icol) -             &
+                  current_state%v%data(k+1, jcol-1, icol) ) +           &
+                 (current_state%v%data(k,   jcol,   icol) -             &
+                  current_state%v%data(k,   jcol-1, icol) ) )
 #else
          S22(k)=0.0_DEFAULT_PRECISION
 #endif
 #ifdef W_ACTIVE
       ! Average over 2 points W but 0.5 cancels 2
-         S33(k)=((current_state%w%data(k, jcol, icol)-&
-           current_state%w%data(k-1, jcol, icol))*&
-           current_state%global_grid%configuration%vertical%rdz(k)) +&
-           ((current_state%w%data(k+1, jcol, icol)-&
-           current_state%w%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%vertical%rdz(k+1))
+         S33(k)=(current_state%w%data(k,   jcol, icol) -                  &
+                 current_state%w%data(k-1, jcol, icol) ) *                &
+                current_state%global_grid%configuration%vertical%rdz(k) + &
+                (current_state%w%data(k+1, jcol, icol) -                  &
+                 current_state%w%data(k,   jcol, icol) ) *                &
+                current_state%global_grid%configuration%vertical%rdz(k+1)
            
       ! No average needed
-         S33_on_p(k) = 2.0_DEFAULT_PRECISION * &
-         ((current_state%w%data(k,   jcol, icol)-&
-           current_state%w%data(k-1, jcol, icol))*&
-           current_state%global_grid%configuration%vertical%rdz(k))
+!         S33_on_p(k) = 2.0_DEFAULT_PRECISION * &
+!         ((current_state%w%data(k,   jcol, icol)-&
+!           current_state%w%data(k-1, jcol, icol))*&
+!           current_state%global_grid%configuration%vertical%rdz(k))
 #else
          S33(k)=0.0_DEFAULT_PRECISION
-         S33_on_p(k) = 0.0_DEFAULT_PRECISION
+!         S33_on_p(k) = 0.0_DEFAULT_PRECISION
 #endif
 #if defined(U_ACTIVE) && defined(W_ACTIVE)
       ! Average over 2 points U and W
-         S13(k)=(((current_state%u%data(k+1, jcol, icol)-&
-                   current_state%u%data(k, jcol, icol))*&
-                  current_state%global_grid%configuration%vertical%rdzn(k+1)+&
-                  (current_state%w%data(k, jcol, icol+1)-&
-                   current_state%w%data(k, jcol, icol))*&
-                  current_state%global_grid%configuration%horizontal%cx)+&
-                 ((current_state%u%data(k+1, jcol, icol-1)-&
-                   current_state%u%data(k, jcol, icol-1))*&
-                  current_state%global_grid%configuration%vertical%rdzn(k+1)+&
-                  (current_state%w%data(k, jcol, icol)-&
-                   current_state%w%data(k, jcol, icol-1))*&
-                  current_state%global_grid%configuration%horizontal%cx))*0.5_DEFAULT_PRECISION
+         S13(k)= ((current_state%u%data(k+1, jcol, icol  ) -                   &
+                   current_state%u%data(k,   jcol, icol  ) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%w%data(k,   jcol, icol+1) -                   &
+                   current_state%w%data(k,   jcol, icol  ) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cx +      &
+                  (current_state%u%data(k+1, jcol, icol-1) -                   &
+                   current_state%u%data(k,   jcol, icol-1) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%w%data(k,   jcol, icol  ) -                   &
+                   current_state%w%data(k,   jcol, icol-1) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cx        &
+                 ) * 0.5_DEFAULT_PRECISION
 #elif defined(U_ACTIVE) && !defined(W_ACTIVE)
-         S13(k)=(((current_state%u%data(k+1, jcol, icol)-&
-           current_state%u%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%vertical%rdzn(k+1))+&
-           ((current_state%u%data(k+1, jcol, icol-1)-&
-           current_state%u%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%vertical%rdzn(k+1)))*0.5_DEFAULT_PRECISION
+         S13(k)= ((current_state%u%data(k+1, jcol, icol  ) -                   &
+                   current_state%u%data(k,   jcol, icol  ) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%u%data(k+1, jcol, icol-1) -                   &
+                   current_state%u%data(k,   jcol, icol-1) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                 ) * 0.5_DEFAULT_PRECISION
+!         S13(k)=(((current_state%u%data(k+1, jcol, icol)-&
+!           current_state%u%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%vertical%rdzn(k+1))+&
+!           ((current_state%u%data(k+1, jcol, icol-1)-&
+!           current_state%u%data(k, jcol, icol-1))*&
+!           current_state%global_grid%configuration%vertical%rdzn(k+1)))*0.5_DEFAULT_PRECISION
 #elif !defined(U_ACTIVE) && defined(W_ACTIVE)
-         S13(k)=(((current_state%w%data(k, jcol, icol+1)-&
-           current_state%w%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cx)+&
-           ((current_state%w%data(k, jcol, icol)-&
-           current_state%w%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx))*0.5_DEFAULT_PRECISION
+         S13(k)= ((current_state%w%data(k,   jcol, icol+1) -                   &
+                   current_state%w%data(k,   jcol, icol  ) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cx +      &
+                  (current_state%w%data(k,   jcol, icol  ) -                   &
+                   current_state%w%data(k,   jcol, icol-1) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cx        &
+                 ) * 0.5_DEFAULT_PRECISION
+!         S13(k)=(((current_state%w%data(k, jcol, icol+1)-&
+!           current_state%w%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cx)+&
+!           ((current_state%w%data(k, jcol, icol)-&
+!           current_state%w%data(k, jcol, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cx))*0.5_DEFAULT_PRECISION
 #else
          S13(k)=0.0_DEFAULT_PRECISION
 #endif
 #if defined(W_ACTIVE) && defined(V_ACTIVE)
       ! Average over 2 points W and V
-         S23(k)=(((current_state%w%data(k, jcol, icol) - &
-                   current_state%w%data(k, jcol-1, icol)) * &
-                  current_state%global_grid%configuration%horizontal%cy + &
-                  (current_state%v%data(k+1, jcol-1, icol) - &
-                   current_state%v%data(k, jcol-1, icol)) * &
-                  current_state%global_grid%configuration%vertical%rdzn(k+1)) + &
-                 ((current_state%w%data(k, jcol+1, icol) - &
-                   current_state%w%data(k, jcol, icol)) * &
-                  current_state%global_grid%configuration%horizontal%cy + &
-                  (current_state%v%data(k+1, jcol, icol)-&
-                   current_state%v%data(k, jcol, icol))*&
-                  current_state%global_grid%configuration%vertical%rdzn(k+1)))*0.5_DEFAULT_PRECISION
+         S23(k)= ((current_state%v%data(k+1, jcol-1, icol) -                   &
+                   current_state%v%data(k,   jcol-1, icol) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%w%data(k,   jcol,   icol) -                   &
+                   current_state%w%data(k,   jcol-1, icol) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cy +      &
+                  (current_state%v%data(k+1, jcol,   icol) -                   &
+                   current_state%v%data(k,   jcol,   icol) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%w%data(k,   jcol+1, icol) -                   &
+                   current_state%w%data(k,   jcol,   icol) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cy        &
+                ) * 0.5_DEFAULT_PRECISION
 #elif defined(W_ACTIVE) && !defined(V_ACTIVE)
-         S23(k)=(((current_state%w%data(k, jcol, icol)-&
-           current_state%w%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cy)+&
-           ((current_state%w%data(k, jcol+1, icol)-&
-           current_state%w%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cy))*0.5_DEFAULT_PRECISION
+         S23(k)= ((current_state%w%data(k,   jcol,   icol) -                   &
+                   current_state%w%data(k,   jcol-1, icol) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cy +      &
+                  (current_state%w%data(k,   jcol+1, icol) -                   &
+                   current_state%w%data(k,   jcol,   icol) ) *                 &
+                  current_state%global_grid%configuration%horizontal%cy        &
+                 ) * 0.5_DEFAULT_PRECISION
+!         S23(k)=(((current_state%w%data(k, jcol, icol)-&
+!           current_state%w%data(k, jcol-1, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy)+&
+!           ((current_state%w%data(k, jcol+1, icol)-&
+!           current_state%w%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy))*0.5_DEFAULT_PRECISION
 #elif !defined(W_ACTIVE) && defined(V_ACTIVE)
-         S23(k)=(((current_state%v%data(k+1, jcol-1, icol)-&
-           current_state%v%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%vertical%rdzn(k+1))+&
-           ((current_state%v%data(k+1, jcol, icol)-&
-           current_state%v%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%vertical%rdzn(k+1)))*0.5_DEFAULT_PRECISION
+         S23(k)= ((current_state%v%data(k+1, jcol-1, icol) -                   &
+                   current_state%v%data(k,   jcol-1, icol) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1) + &
+                  (current_state%v%data(k+1, jcol,   icol) -                   &
+                   current_state%v%data(k,   jcol,   icol) ) *                 &
+                  current_state%global_grid%configuration%vertical%rdzn(k+1)   &
+                 ) * 0.5_DEFAULT_PRECISION
+!         S23(k)=(((current_state%v%data(k+1, jcol-1, icol)-&
+!           current_state%v%data(k, jcol-1, icol))*&
+!           current_state%global_grid%configuration%vertical%rdzn(k+1))+&
+!           ((current_state%v%data(k+1, jcol, icol)-&
+!           current_state%v%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%vertical%rdzn(k+1)))*0.5_DEFAULT_PRECISION
 #else
          S23(k)=0.0_DEFAULT_PRECISION
 #endif
 #if defined(U_ACTIVE) && defined(V_ACTIVE)
       ! Average over 8 points from U and V
-         S12(k)=(((((current_state%u%data(k, jcol, icol-1)-&
-           current_state%u%data(k, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k, jcol-1, icol)-&
-           current_state%v%data(k, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx) +&
-           ((current_state%u%data(k, jcol+1, icol-1)-&
-           current_state%u%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k, jcol, icol)-&
-           current_state%v%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx)) +(&
-           ((current_state%u%data(k, jcol, icol)-&
-           current_state%u%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k, jcol-1, icol+1)-&
-           current_state%v%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cx) +&
-           ((current_state%u%data(k, jcol+1, icol)-&
-           current_state%u%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k, jcol, icol+1)-&
-           current_state%v%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cx)))+((&
-           ((current_state%u%data(k+1, jcol, icol-1)-&
-           current_state%u%data(k+1, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k+1, jcol-1, icol)-&
-           current_state%v%data(k+1, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx)+&
-           ((current_state%u%data(k+1, jcol+1, icol-1)-&
-           current_state%u%data(k+1, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k+1, jcol, icol)-&
-           current_state%v%data(k+1, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx))+(&
-           ((current_state%u%data(k+1, jcol, icol)-&
-           current_state%u%data(k+1, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k+1, jcol-1, icol+1)-&
-           current_state%v%data(k+1, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cx)+&
-           ((current_state%u%data(k+1, jcol+1, icol)-&
-           current_state%u%data(k+1, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cy+&
-           (current_state%v%data(k+1, jcol, icol+1)-&
-           current_state%v%data(k+1, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cx))))*0.125_DEFAULT_PRECISION
+         S12(k) =  ((current_state%u%data(k,   jcol,   icol-1) - &
+                     current_state%u%data(k,   jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k,   jcol-1, icol  ) - &
+                     current_state%v%data(k,   jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k,   jcol+1, icol-1) - &
+                     current_state%u%data(k,   jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k,   jcol,   icol  ) - &
+                     current_state%v%data(k,   jcol,   icol-1)) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k,   jcol,   icol  ) - &
+                     current_state%u%data(k,   jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k,   jcol-1, icol+1) - &
+                     current_state%v%data(k,   jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k,   jcol+1, icol  ) - &
+                     current_state%u%data(k,   jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k,   jcol,   icol+1) - &
+                     current_state%v%data(k,   jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k+1, jcol,   icol-1) - &
+                     current_state%u%data(k+1, jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k+1, jcol-1, icol  ) - &
+                     current_state%v%data(k+1, jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k+1, jcol+1, icol-1) - &
+                     current_state%u%data(k+1, jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k+1, jcol,   icol  ) - &
+                     current_state%v%data(k+1, jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k+1, jcol,   icol  ) - &
+                     current_state%u%data(k+1, jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k+1, jcol-1, icol+1) - &
+                     current_state%v%data(k+1, jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%u%data(k+1, jcol+1, icol  ) - &
+                     current_state%u%data(k+1, jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%v%data(k+1, jcol,   icol+1) - &
+                     current_state%v%data(k+1, jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx &
+                   ) * 0.125_DEFAULT_PRECISION
 
 #elif defined(U_ACTIVE) && !defined(V_ACTIVE)
+         S12(k) =  ((current_state%u%data(k,   jcol,   icol-1) - &
+                     current_state%u%data(k,   jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k,   jcol+1, icol-1) - &
+                     current_state%u%data(k,   jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k,   jcol,   icol  ) - &
+                     current_state%u%data(k,   jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k,   jcol+1, icol  ) - &
+                     current_state%u%data(k,   jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k+1, jcol,   icol-1) - &
+                     current_state%u%data(k+1, jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k+1, jcol+1, icol-1) - &
+                     current_state%u%data(k+1, jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k+1, jcol,   icol  ) - &
+                     current_state%u%data(k+1, jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                    (current_state%u%data(k+1, jcol+1, icol  ) - &
+                     current_state%u%data(k+1, jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cy + &
+                   ) * 0.125_DEFAULT_PRECISION
 
-         S12(k)=(((((current_state%u%data(k, jcol, icol-1)-&
-           current_state%u%data(k, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy) +&
-           ((current_state%u%data(k, jcol+1, icol-1)-&
-           current_state%u%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy)) +(&
-           ((current_state%u%data(k, jcol, icol)-&
-           current_state%u%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cy) +&
-           ((current_state%u%data(k, jcol+1, icol)-&
-           current_state%u%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cy)))+((&
-           ((current_state%u%data(k+1, jcol, icol-1)-&
-           current_state%u%data(k+1, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy)+&
-           ((current_state%u%data(k+1, jcol+1, icol-1)-&
-           current_state%u%data(k+1, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cy))+(&
-           ((current_state%u%data(k+1, jcol, icol)-&
-           current_state%u%data(k+1, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cy)+&
-           ((current_state%u%data(k+1, jcol+1, icol)-&
-           current_state%u%data(k+1, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cy))))*0.125_DEFAULT_PRECISION
+!         S12(k)=(((((current_state%u%data(k, jcol, icol-1)-&
+!           current_state%u%data(k, jcol-1, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cy) +&
+!           ((current_state%u%data(k, jcol+1, icol-1)-&
+!           current_state%u%data(k, jcol, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cy)) +(&
+!           ((current_state%u%data(k, jcol, icol)-&
+!           current_state%u%data(k, jcol-1, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy) +&
+!           ((current_state%u%data(k, jcol+1, icol)-&
+!           current_state%u%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy)))+((&
+!           ((current_state%u%data(k+1, jcol, icol-1)-&
+!           current_state%u%data(k+1, jcol-1, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cy)+&
+!           ((current_state%u%data(k+1, jcol+1, icol-1)-&
+!           current_state%u%data(k+1, jcol, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cy))+(&
+!           ((current_state%u%data(k+1, jcol, icol)-&
+!           current_state%u%data(k+1, jcol-1, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy)+&
+!           ((current_state%u%data(k+1, jcol+1, icol)-&
+!           current_state%u%data(k+1, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cy))))*0.125_DEFAULT_PRECISION
 
 #elif !defined(U_ACTIVE) && defined(V_ACTIVE)
 
-         S12(k)=(((((current_state%v%data(k, jcol-1, icol)-&
-           current_state%v%data(k, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx) +&
-           ((current_state%v%data(k, jcol, icol)-&
-           current_state%v%data(k, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx)) +&
-           (((current_state%v%data(k, jcol-1, icol+1)-&
-           current_state%v%data(k, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cx) +&
-           ((current_state%v%data(k, jcol, icol+1)-&
-           current_state%v%data(k, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cx)))+((&
-           ((current_state%v%data(k+1, jcol-1, icol)-&
-           current_state%v%data(k+1, jcol-1, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx)+&
-           ((current_state%v%data(k+1, jcol, icol)-&
-           current_state%v%data(k+1, jcol, icol-1))*&
-           current_state%global_grid%configuration%horizontal%cx))+(&
-           ((current_state%v%data(k+1, jcol-1, icol+1)-&
-           current_state%v%data(k+1, jcol-1, icol))*&
-           current_state%global_grid%configuration%horizontal%cx)+&
-           ((current_state%v%data(k+1, jcol, icol+1)-&
-           current_state%v%data(k+1, jcol, icol))*&
-           current_state%global_grid%configuration%horizontal%cx))))*0.125_DEFAULT_PRECISION
+         S12(k) =  ((current_state%v%data(k,   jcol-1, icol  ) - &
+                     current_state%v%data(k,   jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k,   jcol,   icol  ) - &
+                     current_state%v%data(k,   jcol,   icol-1)) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k,   jcol-1, icol+1) - &
+                     current_state%v%data(k,   jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k,   jcol,   icol+1) - &
+                     current_state%v%data(k,   jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k+1, jcol-1, icol  ) - &
+                     current_state%v%data(k+1, jcol-1, icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k+1, jcol,   icol  ) - &
+                     current_state%v%data(k+1, jcol,   icol-1) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k+1, jcol-1, icol+1) - &
+                     current_state%v%data(k+1, jcol-1, icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx + &
+                    (current_state%v%data(k+1, jcol,   icol+1) - &
+                     current_state%v%data(k+1, jcol,   icol  ) ) * &
+                    current_state%global_grid%configuration%horizontal%cx &
+                   ) * 0.125_DEFAULT_PRECISION
+
+!         S12(k)=(((((current_state%v%data(k, jcol-1, icol)-&
+!           current_state%v%data(k, jcol-1, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cx) +&
+!           ((current_state%v%data(k, jcol, icol)-&
+!           current_state%v%data(k, jcol, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cx)) +&
+!           (((current_state%v%data(k, jcol-1, icol+1)-&
+!           current_state%v%data(k, jcol-1, icol))*&
+!           current_state%global_grid%configuration%horizontal%cx) +&
+!           ((current_state%v%data(k, jcol, icol+1)-&
+!           current_state%v%data(k, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cx)))+((&
+!           ((current_state%v%data(k+1, jcol-1, icol)-&
+!           current_state%v%data(k+1, jcol-1, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cx)+&
+!           ((current_state%v%data(k+1, jcol, icol)-&
+!           current_state%v%data(k+1, jcol, icol-1))*&
+!           current_state%global_grid%configuration%horizontal%cx))+(&
+!           ((current_state%v%data(k+1, jcol-1, icol+1)-&
+!           current_state%v%data(k+1, jcol-1, icol))*&
+!           current_state%global_grid%configuration%horizontal%cx)+&
+!           ((current_state%v%data(k+1, jcol, icol+1)-&
+!           current_state%v%data(k+1, jcol, icol))*&
+!           current_state%global_grid%configuration%horizontal%cx))))*0.125_DEFAULT_PRECISION
 #else
          S12(k)=0.0_DEFAULT_PRECISION
 #endif
        enddo   
        
+       S11(1)=0.0_DEFAULT_PRECISION
+         
+       S12(1)=0.0_DEFAULT_PRECISION
+       
 #if defined(U_ACTIVE)
       ! Average over 2 points U and W
-       S13(1)=(current_state%u%data(2, jcol, icol) + &
-               current_state%u%data(2, jcol, icol-1)) * &
-               0.5_DEFAULT_PRECISION / current_state%global_grid%configuration%vertical%zn(2)
+       S13(1)=(current_state%u%data(2, jcol, icol  ) + &
+               current_state%u%data(2, jcol, icol-1))  &
+               * 0.5_DEFAULT_PRECISION &
+               / current_state%global_grid%configuration%vertical%zn(2)
 #else
        S13(1)=0.0_DEFAULT_PRECISION
 #endif
+
+       S22(1)=0.0_DEFAULT_PRECISION
+       
 #if defined(V_ACTIVE)
       ! Average over 2 points W and V
-       S23(1)=(current_state%v%data(2, jcol, icol) + &
-               current_state%v%data(2, jcol-1, icol)) * &
-               0.5_DEFAULT_PRECISION / current_state%global_grid%configuration%vertical%zn(2)
+       S23(1)=(current_state%v%data(2, jcol,   icol) + &
+               current_state%v%data(2, jcol-1, icol))  &
+               * 0.5_DEFAULT_PRECISION &
+               / current_state%global_grid%configuration%vertical%zn(2)
 #else
        S23(1)=0.0_DEFAULT_PRECISION
 #endif
-       S12(1)=0.0_DEFAULT_PRECISION
+
+       S33(1)=0.0_DEFAULT_PRECISION 
     
        do k=1,current_state%local_grid%size(Z_INDEX)-1
          tau11(k) = current_state%global_grid%configuration%vertical%rho(k) * &
@@ -511,13 +623,13 @@ contains
            S23(k)
        enddo 
          
-       do k=2,current_state%local_grid%size(Z_INDEX)
-         tau33_on_p(k) = current_state%global_grid%configuration%vertical%rhon(k) * 0.5 *&
-           (current_state%vis_coefficient%data(k-1,jcol,icol) + &
-            current_state%vis_coefficient%data(k,  jcol,icol)) * &
-           S33_on_p(k)
-       enddo   
-
+!       do k=2,current_state%local_grid%size(Z_INDEX)
+!         tau33_on_p(k) = current_state%global_grid%configuration%vertical%rhon(k) * 0.5 *&
+!           (current_state%vis_coefficient%data(k-1,jcol,icol) + &
+!            current_state%vis_coefficient%data(k,  jcol,icol)) * &
+!           S33_on_p(k)
+!       enddo   
+       
 !      Subgrid diagnostics
        do k=1, current_state%local_grid%size(Z_INDEX)-1
 !
@@ -613,30 +725,7 @@ contains
              enddo
           endif
        endif
-
-! Level 1 wind speed - needed in various places
-
-       U_1=SQRT(current_state%u%data(2,jcol,icol) * &
-                current_state%u%data(2,jcol,icol) + &
-                current_state%v%data(2,jcol,icol) * &
-                current_state%v%data(2,jcol,icol))
-       U_1_bar=SQRT(current_state%global_grid%configuration%vertical%olubar(2)*&
-                    current_state%global_grid%configuration%vertical%olubar(2)+&
-                    current_state%global_grid%configuration%vertical%olvbar(2)*&
-                    current_state%global_grid%configuration%vertical%olvbar(2))
-
-      ! Do p levels - calculate subgrid TKE diagnostics based on tau, interpolate to w levels
-       do k=1, current_state%local_grid%size(Z_INDEX)-1
-         rho(k) = current_state%global_grid%configuration%vertical%rho(k)
-       end do
-
-! Buoyancy coefficient on u (zn) levels
-! note: this is not official MONC elsewhere
-       do k=1, current_state%local_grid%size(Z_INDEX)
-         buoy_cof(k)=G/current_state%global_grid%configuration%vertical%thref(k) 
-       end do
-
-
+       
 !      =======================================================
 !      Calculation of subgrid diagnostics dependent on the dissipation.
 !
@@ -771,7 +860,7 @@ contains
                   current_state%vis_coefficient%data(1, jcol, icol) &
                   * U_1 * U_1 / &
                   (current_state%global_grid%configuration%vertical%zn(2) * &
-                  current_state%global_grid%configuration%vertical%zn(2)) + buoy_prod
+                   current_state%global_grid%configuration%vertical%zn(2)) + buoy_prod
           else
              call log_master_log(LOG_ERROR, &
                 "Subgrid diags - buoy_prod calc needs theta and q active, STOP")
@@ -809,11 +898,11 @@ contains
           
           !Subgrid shear-------
           umean(k)=(current_state%global_grid%configuration%vertical%olubar(k+1) - &
-               current_state%global_grid%configuration%vertical%olubar(k)) * &
-               current_state%global_grid%configuration%vertical%rdzn(k+1)
+                    current_state%global_grid%configuration%vertical%olubar(k)) * &
+                   current_state%global_grid%configuration%vertical%rdzn(k+1)
           vmean(k)=(current_state%global_grid%configuration%vertical%olvbar(k+1) -  &
-               current_state%global_grid%configuration%vertical%olvbar(k)) * &
-               current_state%global_grid%configuration%vertical%rdzn(k+1)
+                    current_state%global_grid%configuration%vertical%olvbar(k)) * &
+                   current_state%global_grid%configuration%vertical%rdzn(k+1)
           
           sg_shear_prod = current_state%vis_coefficient%data(k,jcol,icol)* &
                (S13(k)*umean(k)+S23(k)*vmean(k))
@@ -821,24 +910,24 @@ contains
           ssub_tot(k)=ssub_tot(k) + sg_shear_prod
           
           !tau is at p points - so convert to w points
-          uwsg(k)=0.5*(tau13(k)+tau13(k+1))/rho(k)
-          vwsg(k)=0.5*(tau23(k)+tau23(k+1))/rho(k)
+          uwsg(k)=0.5_DEFAULT_PRECISION*(tau13(k)+tau13(k+1))/rho(k)
+          vwsg(k)=0.5_DEFAULT_PRECISION*(tau23(k)+tau23(k+1))/rho(k)
           
        end do
        
        k=1
              
        sg_shear_prod = current_state%vis_coefficient%data(1, jcol, icol) * &
-            ( 0.5 * & 
+          ( 0.5_DEFAULT_PRECISION * & 
             (current_state%u%data(2,jcol,icol-1)  + & 
-            current_state%u%data(2,jcol,icol) ) * &
+             current_state%u%data(2,jcol,icol) ) * &
             current_state%global_grid%configuration%vertical%olubar(2) + &
-            0.5 * & 
+            0.5_DEFAULT_PRECISION * & 
             (current_state%v%data(2,jcol-1,icol)  + & 
-            current_state%v%data(2,jcol,icol) ) * &
+             current_state%v%data(2,jcol,icol) ) * &
             current_state%global_grid%configuration%vertical%olvbar(2) ) / &
             (current_state%global_grid%configuration%vertical%zn(2) * &
-            current_state%global_grid%configuration%vertical%zn(2)) 
+             current_state%global_grid%configuration%vertical%zn(2)) 
        
        ssub_tot(1)=ssub_tot(1) + sg_shear_prod
        
@@ -850,48 +939,51 @@ contains
           
           u_i_prime_tau_i(k) = ( 0.5_DEFAULT_PRECISION * &
                (current_state%u%data(k,jcol,icol-1)  + &
-               current_state%u%data(k,jcol,icol)  ) - &
-               current_state%global_grid%configuration%vertical%olubar(k)) * &
-               0.5_DEFAULT_PRECISION * ( tau13(k-1)+tau13(k))
+                current_state%u%data(k,jcol,icol)  ) - &
+                current_state%global_grid%configuration%vertical%olubar(k)) * &
+                0.5_DEFAULT_PRECISION * ( tau13(k-1)+tau13(k))
           
           u_i_prime_tau_i(k) = u_i_prime_tau_i(k) + ( 0.5_DEFAULT_PRECISION * &
                (current_state%v%data(k,jcol-1,icol)  + &
-               current_state%v%data(k,jcol,icol)  ) - &
-               current_state%global_grid%configuration%vertical%olvbar(k)) * &
-               0.5_DEFAULT_PRECISION * ( tau23(k-1)+tau23(k))
+                current_state%v%data(k,jcol,icol)  ) - &
+                current_state%global_grid%configuration%vertical%olvbar(k)) * &
+                0.5_DEFAULT_PRECISION * ( tau23(k-1)+tau23(k))
           
           u_i_prime_tau_i(k) = u_i_prime_tau_i(k) + ( 0.5_DEFAULT_PRECISION * &
-               (current_state%w%data(k-1,jcol,icol)+&
-               current_state%w%data(k,jcol,icol))) *&
-               tau33_on_p(k)
+               (current_state%w%data(k-1,jcol,icol) + &
+                current_state%w%data(k,jcol,icol))) * &
+                0.5_DEFAULT_PRECISION * ( tau33(k-1)+tau33(k)) 
+!          u_i_prime_tau_i(k) = u_i_prime_tau_i(k) + ( 0.5_DEFAULT_PRECISION * &
+!               (current_state%w%data(k-1,jcol,icol)+&
+!               current_state%w%data(k,jcol,icol))) *&
+!               tau33_on_p(k)
           
        end do
-       
+              
        u_i_prime_tau_i(1) = &
             ( 0.5_DEFAULT_PRECISION  * & 
             (current_state%u%data(2,jcol,icol-1)  + & 
-            current_state%u%data(2,jcol,icol) ) - &
-           current_state%global_grid%configuration%vertical%olubar(2) ) * &
-           ( 0.5_DEFAULT_PRECISION  * &
-           (current_state%u%data(2,jcol,icol-1)  + & 
-           current_state%u%data(2,jcol,icol) ) )
+             current_state%u%data(2,jcol,icol)  ) - &
+             current_state%global_grid%configuration%vertical%olubar(2) ) * &
+            ( 0.5_DEFAULT_PRECISION  * &
+            (current_state%u%data(2,jcol,icol-1)  + & 
+             current_state%u%data(2,jcol,icol) ) )
        
        u_i_prime_tau_i(1) = u_i_prime_tau_i(1) + &
             ( 0.5_DEFAULT_PRECISION  * & 
             (current_state%v%data(2,jcol-1,icol)  + & 
-            current_state%v%data(2,jcol,icol) ) - &
-            current_state%global_grid%configuration%vertical%olvbar(2) ) * &
-         ( 0.5_DEFAULT_PRECISION  * &
-         (current_state%v%data(2,jcol-1,icol)  + & 
-         current_state%v%data(2,jcol,icol) ) )
+             current_state%v%data(2,jcol,icol)  ) - &
+             current_state%global_grid%configuration%vertical%olvbar(2) ) * &
+            ( 0.5_DEFAULT_PRECISION  * &
+            (current_state%v%data(2,jcol-1,icol)  + & 
+             current_state%v%data(2,jcol,icol) ) )
        
        ! Note - here we use the surface vis_coefficient to ensure exact cancellation in
        ! numerical budget
        u_i_prime_tau_i(1) = u_i_prime_tau_i(1) * &        
             current_state%vis_coefficient%data(1,jcol,icol) / & 
             current_state%global_grid%configuration%vertical%zn(2)  
-       
-       
+
        do k=2, current_state%local_grid%size(Z_INDEX)-2
           sed_tot(k)=sed_tot(k) + (u_i_prime_tau_i(k+1)-u_i_prime_tau_i(k)) * &
                current_state%global_grid%configuration%vertical%rdzn(k+1) / &

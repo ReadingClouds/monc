@@ -1,0 +1,26 @@
+<data-definition name="alanna_ml_diags_fields" frequency="{3d_sampling_frequency}" namespace="alanna_ml_diagsns">
+  <field name="z_ml_height"    type="array" data_type="double" size="y,x" collective=true optional=true/>
+  <field name="z_ct_height"    type="array" data_type="double" size="y,x" collective=true optional=true/>
+  <field name="mom_env_ml"     type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="mom_ic_ml"      type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="scalar_env_ml"  type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="scalar_ic_ml"   type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="fm"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="fh"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="mom_ml"         type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="scalar_ml"      type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+</data-definition>
+
+
+<group name="alanna_ml_diags" namespace="alanna_ml_diagsns">
+  <member name="z_ml_height"   />
+  <member name="z_ct_height"   />
+  <member name="mom_env_ml"    />
+  <member name="mom_ic_ml"     />
+  <member name="scalar_env_ml" />
+  <member name="scalar_ic_ml"  />
+  <member name="fm"            />
+  <member name="fh"            />
+  <member name="mom_ml"        />
+  <member name="scalar_ml"     />
+</group>

@@ -15,12 +15,14 @@
     <field name="p" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
     <field name="q" type="array" data_type="double" size="z,y,x,qfields" collective=true optional=true/>
     <field name="tracer" type="array" data_type="double" size="z,y,x,tfields" collective=true optional=true/>
+    <field name="ca" type="array" data_type="double" size="z,y,x,cafields" collective=true optional=true/>
     <field name="zw" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
     <field name="zu" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
     <field name="zv" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
     <field name="zth" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
     <field name="zq" type="array" data_type="double" size="z,y,x,qfields" collective=true optional=true/>
     <field name="ztracer" type="array" data_type="double" size="z,y,x,tfields" collective=true optional=true/>
+    <field name="zca" type="array" data_type="double" size="z,y,x,cafields" collective=true optional=true/>
     <field name="olubar" type="array" data_type="double" size="z" optional=true/>
     <field name="olvbar" type="array" data_type="double" size="z" optional=true/>
     <field name="olthbar" type="array" data_type="double" size="z" optional=true/>
@@ -38,12 +40,14 @@
     <field name="nqfields" type="scalar" data_type="integer"/>
     <field name="ntracers" type="scalar" data_type="integer"/>
     <field name="nradtracers" type="scalar" data_type="integer"/>
+    <field name="ncafields" type="scalar" data_type="integer"/>
     <field name="timestep" type="scalar" data_type="integer"/>
     <field name="dtm" type="scalar" data_type="double"/>
     <field name="dtm_new" type="scalar" data_type="double"/>
     <field name="absolute_new_dtm" type="scalar" data_type="double"/>
     <field name="normal_step" type="scalar" data_type="integer"/>
     <field name="q_indicies" type="map" data_type="string" size="active_q_indicies" optional=true/>
+    <field name="ca_indicies" type="map" data_type="string" size="active_ca_indicies" optional=true/>
     <field name="x_resolution" type="scalar" data_type="double"/>
     <field name="x_top" type="scalar" data_type="double" />
     <field name="x_bottom" type="scalar" data_type="double"/>
@@ -67,12 +71,14 @@
     <member name="p"/>
     <member name="q"/>
     <member name="tracer"/>
+    <member name="ca"/>
     <member name="zw"/>
     <member name="zu"/>
     <member name="zv"/>
     <member name="zth"/>
     <member name="zq"/>
     <member name="ztracer"/>
+    <member name="zca"/>
     <member name="olubar"/>
     <member name="olvbar"/>
     <member name="olthbar"/>
@@ -87,12 +93,14 @@
     <member name="nqfields"/>
     <member name="ntracers"/>
     <member name="nradtracers"/>
+    <member name="ncafields"/>
     <member name="timestep"/>
     <member name="dtm"/>
     <member name="dtm_new"/>
     <member name="absolute_new_dtm"/>
     <member name="normal_step"/>
     <member name="q_indicies"/>
+    <member name="ca_indicies"/>
     <member name="thref"/>
     <member name="x_resolution"/>
     <member name="x_top"/>

@@ -1878,16 +1878,14 @@ contains
           current_state%p%data(k,current_state%column_local_y,current_state%column_local_x))
         
       u_at_p = 0.5_DEFAULT_PRECISION * &
-          ((current_state%u%data(k,current_state%column_local_y,current_state%column_local_x-1)- &
-            current_state%global_grid%configuration%vertical%olubar(k)) + &
-           (current_state%u%data(k,current_state%column_local_y,current_state%column_local_x)  - &
-            current_state%global_grid%configuration%vertical%olubar(k))) 
+          (current_state%u%data(k,current_state%column_local_y,current_state%column_local_x-1) + &
+           current_state%u%data(k,current_state%column_local_y,current_state%column_local_x) ) - &
+            current_state%global_grid%configuration%vertical%olubar(k) 
    
       v_at_p = 0.5_DEFAULT_PRECISION * &
-          ((current_state%v%data(k,current_state%column_local_y-1,current_state%column_local_x)- &
-            current_state%global_grid%configuration%vertical%olvbar(k)) + &
-           (current_state%v%data(k,current_state%column_local_y,current_state%column_local_x)  - &
-            current_state%global_grid%configuration%vertical%olvbar(k)))
+          (current_state%v%data(k,current_state%column_local_y-1,current_state%column_local_x) + &
+           current_state%v%data(k,current_state%column_local_y,current_state%column_local_x) ) - &
+            current_state%global_grid%configuration%vertical%olvbar(k)
 
       w_at_p = 0.5_DEFAULT_PRECISION  * &
           (current_state%w%data(k,  current_state%column_local_y,current_state%column_local_x) + &
@@ -1897,10 +1895,17 @@ contains
           ( u_at_p*u_at_p + v_at_p*v_at_p + w_at_p*w_at_p) * rec_rhon(k)
 
     end do
+
+    w_pprime_at_p(2) = 0.5_DEFAULT_PRECISION * & 
+       (current_state%w%data(2,  current_state%column_local_y,current_state%column_local_x)) * &
+       (current_state%global_grid%configuration%vertical%rhon(2) * &
+        current_state%p%data(2,current_state%column_local_y,current_state%column_local_x))
+
            
     w_pprime_at_p(current_state%local_grid%size(Z_INDEX)) = 0.0_DEFAULT_PRECISION 
     ! Zero gradient at surface     
     w_pprime_at_p(1)=w_pprime_at_p(2)
+    
     if (allocated(wp)) then
       do k=1, current_state%local_grid%size(Z_INDEX)-1
         wp(k)= wp(k) - ((w_pprime_at_p(k+1) - w_pprime_at_p(k)) * &

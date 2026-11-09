@@ -53,5 +53,12 @@ contains
         current_state%reinit_tracer=.false. 
       end if
     end if
+    
+    if (current_state%number_ca_fields > 0) then
+      do i=1, current_state%number_ca_fields
+        current_state%sca(i)%data=0.0_DEFAULT_PRECISION
+      end do
+    end if
+
   end subroutine timestep_callback  
 end module clearsourceterms_mod

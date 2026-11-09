@@ -13,6 +13,8 @@ module tvdadvection_mod
   use collections_mod, only : map_type
   use mpi, only : MPI_REQUEST_NULL, MPI_STATUS_IGNORE
   use q_indices_mod, only: get_q_index, standard_q_names
+  use ca_indices_mod, only: get_ca_index, standard_ca_names
+  use circle_a_mod, only: circle_a_enabled
   ! Some tvd diagnostic terms 
   use def_tvd_diagnostic_terms, only: tvd_dgs_terms 
   use registry_mod, only : is_component_enabled
@@ -25,11 +27,12 @@ module tvdadvection_mod
 
   type(grid_stencil_type), save :: star_stencil
   integer, save :: u_index=0, v_index=0, w_index=0
-  logical :: advect_flow, advect_th, advect_q, advect_tracer
+  logical :: advect_flow, advect_th, advect_q, advect_tracer, advect_ca
   real(kind=DEFAULT_PRECISION), dimension(:), allocatable :: flux_x, flux_y, flux_z, u_advection, v_advection, &
        w_advection, th_advection
   real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: q_advection
   real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: tracer_advection
+  real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: ca_advection
   
   type(prognostic_field_type), dimension(:), allocatable :: interpolated_fields
 
@@ -68,7 +71,7 @@ contains
 
     tvdadvection_get_descriptor%field_value_retrieval=>field_value_retrieval_callback
     tvdadvection_get_descriptor%field_information_retrieval=>field_information_retrieval_callback
-    allocate(tvdadvection_get_descriptor%published_fields(5+11+11+1))
+    allocate(tvdadvection_get_descriptor%published_fields(5+11+11+2))
     tvdadvection_get_descriptor%published_fields(1)="u_advection"
     tvdadvection_get_descriptor%published_fields(2)="v_advection"
     tvdadvection_get_descriptor%published_fields(3)="w_advection"
@@ -101,6 +104,7 @@ contains
     tvdadvection_get_descriptor%published_fields(5+11+11)="tend_tabs_tvdadvection_profile_total_local"
     
     tvdadvection_get_descriptor%published_fields(5+11+11+1)="tracer_advection"
+    tvdadvection_get_descriptor%published_fields(5+11+11+2)="ca_advection"
 
 
   end function tvdadvection_get_descriptor
@@ -122,12 +126,15 @@ contains
       field_information%number_dimensions=2
     else if (name .eq. "tracer_advection") then
       field_information%number_dimensions=2
+    else if (name .eq. "ca_advection") then
+      field_information%number_dimensions=2
     else
       field_information%number_dimensions=1
     end if
     field_information%dimension_sizes(1)=current_state%local_grid%size(Z_INDEX)
     if (name .eq. "q_advection") field_information%dimension_sizes(2)=current_state%number_q_fields
     if (name .eq. "tracer_advection") field_information%dimension_sizes(2)=current_state%n_tracers
+    if (name .eq. "ca_advection") field_information%dimension_sizes(2)=current_state%number_ca_fields
     field_information%enabled=.true.
 
     ! Field information for 3d
@@ -228,6 +235,8 @@ contains
       allocate(field_value%real_2d_array(size(q_advection, 1), size(q_advection, 2)), source=q_advection)
     else if (name .eq. "tracer_advection") then
       allocate(field_value%real_2d_array(size(tracer_advection, 1), size(tracer_advection, 2)), source=tracer_advection)
+    else if (name .eq. "ca_advection") then
+      allocate(field_value%real_2d_array(size(ca_advection, 1), size(ca_advection, 2)), source=ca_advection)
     end if
 
     ! 3d Tendency Fields
@@ -337,9 +346,10 @@ contains
     allocate(flux_z(current_state%global_grid%size(Z_INDEX)))
     allocate(flux_x(current_state%global_grid%size(Z_INDEX)))
     allocate(u_advection(current_state%global_grid%size(Z_INDEX)), v_advection(current_state%global_grid%size(Z_INDEX)), &
-         w_advection(current_state%global_grid%size(Z_INDEX)), th_advection(current_state%global_grid%size(Z_INDEX)), &
-         q_advection(current_state%global_grid%size(Z_INDEX), current_state%number_q_fields), &
-         tracer_advection(current_state%global_grid%size(Z_INDEX), current_state%n_tracers))
+         w_advection(current_state%global_grid%size(Z_INDEX)), th_advection(current_state%global_grid%size(Z_INDEX)),    &
+         q_advection(current_state%global_grid%size(Z_INDEX), current_state%number_q_fields),                            &
+         tracer_advection(current_state%global_grid%size(Z_INDEX), current_state%n_tracers),                             &
+         ca_advection(current_state%global_grid%size(Z_INDEX), current_state%number_ca_fields))
 
     ! Initialise terms
     flux_y(:) = 0.0_DEFAULT_PRECISION
@@ -350,6 +360,9 @@ contains
     advect_th=determine_if_advection_here(options_get_string(current_state%options_database, "advection_theta_field"))
     advect_q=determine_if_advection_here(options_get_string(current_state%options_database, "advection_q_fields"))
     advect_tracer=determine_if_advection_here(options_get_string(current_state%options_database, "advection_theta_field"))
+    advect_ca= circle_a_enabled &
+      .and. determine_if_advection_here(options_get_string(current_state%options_database, "advection_theta_field"))
+              
 
     ! Set tendency diagnostic logicals based on availability
     ! Need to use 3d tendencies to compute the profiles, so they will be allocated
@@ -496,6 +509,7 @@ contains
     if (allocated(th_advection)) deallocate(th_advection)
     if (allocated(q_advection)) deallocate(q_advection)
     if (allocated(tracer_advection)) deallocate(tracer_advection)
+    if (allocated(ca_advection)) deallocate(ca_advection)
 
     if (allocated(tend_3d_u)) deallocate(tend_3d_u)
     if (allocated(tend_3d_v)) deallocate(tend_3d_v)
@@ -592,6 +606,7 @@ contains
     if (advect_th) call advect_theta(current_state)
     if (advect_q) call advect_q_fields(current_state)
     if (advect_tracer) call advect_tracer_fields(current_state)
+    if (advect_ca) call advect_ca_fields(current_state)
 
     if (calculate_diagnostics) &
         call compute_component_tendencies(current_state, current_x_index, current_y_index, target_x_index, target_y_index)
@@ -693,6 +708,44 @@ contains
       tracer_advection(:,i)=current_state%stracer(i)%data(:, current_state%column_local_y, current_state%column_local_x)          
     end do
   end subroutine advect_tracer_fields
+
+  !> Advects the circle-a fields
+  !! @param current_state The current model state_mod
+  subroutine advect_ca_fields(current_state)
+    type(model_state_type), intent(inout) :: current_state
+
+    integer :: i
+    real(kind=DEFAULT_PRECISION) :: dtm
+
+    dtm = current_state%dtm*2.0_DEFAULT_PRECISION
+    if (current_state%scalar_stepping == FORWARD_STEPPING) dtm=current_state%dtm
+
+    do i=1,current_state%number_ca_fields
+      if (current_state%ca_advect(i)) then
+!        write(6,*) "Advecting ca field ", i
+        call advect_scalar_field(current_state%column_local_y, current_state%column_local_x, dtm, current_state%u, &
+             current_state%v, current_state%w, current_state%zca(i), current_state%ca(i), current_state%sca(i),    &
+             current_state%global_grid, current_state%local_grid, current_state%parallel,                          &
+             current_state%halo_column, current_state%field_stepping)
+        ca_advection(:,i)=current_state%sca(i)%data(:, current_state%column_local_y, current_state%column_local_x) 
+        if (is_component_enabled(current_state%options_database, "profile_diagnostics")) then
+           ! NOTE: flux_z is declared at the top of module and then passed into ultflx, through argument 
+           !       list in advect_scalar_field.
+           tvd_dgs_terms%adv_ca_dgs(:, current_state%column_local_y, current_state%column_local_x, i) =  &
+                flux_z(:)
+        endif
+      else
+!        write(6,*) "Not advecting ca field ", i
+        ca_advection(:,i)=0.0_DEFAULT_PRECISION
+        if (is_component_enabled(current_state%options_database, "profile_diagnostics")) then
+           ! NOTE: flux_z is declared at the top of module and then passed into ultflx, through argument 
+           !       list in advect_scalar_field.
+           tvd_dgs_terms%adv_ca_dgs(:, current_state%column_local_y, current_state%column_local_x, i) =  &
+                0.0_DEFAULT_PRECISION
+        endif
+      end if
+    end do
+  end subroutine advect_ca_fields
 
   !> Advects the theta field if it is active
   !! @param current_state The current model state_mod

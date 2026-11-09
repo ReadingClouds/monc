@@ -130,7 +130,7 @@ contains
       equals_absolute=equals_posn+start_index-1
       if (index(trim(adjustl(contents(start_index:equals_absolute))), " ") .ne. 0) then
         ! This warns of and eliminates any garbage before the attribute name, such as 't abc' sets 'abc' as the name
-        call log_log(LOG_WARN, "Ignorning leading garbage in attribute name '"//contents(start_index:equals_absolute)//"'")
+        call log_log(LOG_WARN, "Ignoring leading garbage in attribute name '"//contents(start_index:equals_absolute)//"'")
         begin_index=start_index+index(trim(adjustl(contents(start_index:equals_absolute))), " ")
       else 
         begin_index=start_index

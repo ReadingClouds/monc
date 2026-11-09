@@ -15,9 +15,9 @@ module writer_field_manager_mod
        is_field_present, get_array_double_from_monc, get_array_integer_from_monc, get_string_from_monc, get_map_from_monc, &
        unpack_scalar_integer_from_bytedata, unpack_scalar_dp_real_from_bytedata
   use io_server_client_mod, only : DOUBLE_DATA_TYPE, INTEGER_DATA_TYPE, STRING_DATA_TYPE, SCALAR_FIELD_TYPE, MAP_FIELD_TYPE
-  use logging_mod, only : LOG_WARN, LOG_ERROR, log_log
+  use logging_mod, only : LOG_WARN, LOG_ERROR, LOG_DEBUG, log_master_log, log_log
   use writer_federator_mod, only : is_field_used_by_writer_federator, provide_ordered_field_to_writer_federator, &
-       is_field_split_on_q, is_field_split_on_tracer 
+       is_field_split_on_q, is_field_split_on_tracer, is_field_split_on_ca 
   use writer_types_mod, only : prepare_to_serialise_data_values_type, serialise_data_values_type, unserialise_data_values_type
   use optionsdatabase_mod, only : options_get_logical
   use io_server_client_mod, only : pack_scalar_field
@@ -140,15 +140,25 @@ contains
 
       do i=1, num_fields
         field_name=io_configuration%data_definitions(data_id)%fields(i)%name
+        call log_master_log(LOG_DEBUG, "provide_monc_data_to_writer_federator name '"//trim(field_name)//"'.")
         field_namespace=io_configuration%data_definitions(data_id)%fields(i)%namespace
         if (is_field_present(io_configuration, source, data_id, field_name) .and. &
              (is_field_used_by_writer_federator(field_name, field_namespace) .or. &
-             is_field_split_on_q(field_name) .or. is_field_split_on_tracer(field_name))) then
+             is_field_split_on_q(field_name) .or. is_field_split_on_tracer(field_name) .or. is_field_split_on_ca(field_name))) then
           monc_value=get_value_from_monc_data(io_configuration, source, data_id, data_dump, field_name, field_namespace)
           call provide_field_to_writer_federator_src(io_configuration, field_name, field_namespace, monc_value, timestep, time, &
                io_configuration%data_definitions(data_id)%frequency, source, terminated_case)
           !<<<< CONSIDER WHY DEALLOC IS COMMENTED OUT
+          ! monc_value cannot be deallocated because it is not allocated in the first place - its contents are.
           !deallocate(monc_value)
+          ! FIX (OPTION A): Safe to deallocate because generate_value_container made a deep copy.
+          ! Queued entries own their own independent arrays, so deallocating monc_value here
+          ! does not affect them. Path A (immediate write) deallocates at line 326 anyway.
+          if (allocated(monc_value%values)) deallocate(monc_value%values)
+          if (allocated(monc_value%string_values)) deallocate(monc_value%string_values)
+          ! if (allocated(monc_value%map_values)) deallocate(monc_value%map_values)
+          ! deallocate(monc_value)
+
         end if
       end do
     else
@@ -241,7 +251,8 @@ contains
     real(kind=DEFAULT_PRECISION), intent(in) :: time
 
     type(data_values_type) :: packaged_data
-    
+    call log_master_log(LOG_DEBUG, "provide_field_to_writer_federator_rvalues_src '"//trim(field_name)//"'.")
+
     allocate(packaged_data%values(size(field_values)))
     packaged_data%values=field_values
     packaged_data%data_type=DOUBLE_DATA_TYPE
@@ -256,6 +267,7 @@ contains
     integer, intent(in) :: timestep, frequency
     real(kind=DEFAULT_PRECISION), dimension(:), intent(in) :: field_values
     real(kind=DEFAULT_PRECISION), intent(in) :: time
+    call log_master_log(LOG_DEBUG, "provide_field_to_writer_federator_rvalues_nosrc '"//trim(field_name)//"'.")
 
     call provide_field_to_writer_federator_rvalues_src(io_configuration, field_name, field_namespace, &
          field_values, timestep, time, frequency, -1)
@@ -300,6 +312,7 @@ contains
     type(field_ordering_type), pointer :: field_ordering
     class(*), pointer :: generic
     logical :: this_is_termination, ready_to_provide
+    call log_master_log(LOG_DEBUG, "provide_field_to_writer_federator_src '"//trim(field_name)//"'.")
 
     if (present(terminated_case)) then
       this_is_termination=terminated_case
@@ -419,7 +432,31 @@ contains
     generate_value_container%frequency=frequency
     generate_value_container%time=time
     generate_value_container%source=source
-    allocate(generate_value_container%field_values, source=field_values)
+  ! FIX (OPTION A): Deep copy - allocate new container and copy data arrays
+  ! Each owner has its own independent copy, so no shared pointers
+    ! allocate(generate_value_container%field_values, source=field_values)
+    
+    allocate(generate_value_container%field_values)
+    
+    generate_value_container%field_values%data_type = field_values%data_type
+    generate_value_container%field_values%dimensions = field_values%dimensions
+    generate_value_container%field_values%dim_sizes = field_values%dim_sizes
+  
+    ! Deep copy values array if present
+    if (allocated(field_values%values)) then
+      allocate(generate_value_container%field_values%values(size(field_values%values)))
+      generate_value_container%field_values%values = field_values%values
+    end if
+  
+    ! Deep copy string values if present
+    if (allocated(field_values%string_values)) then
+      allocate(generate_value_container%field_values%string_values(size(field_values%string_values)))
+      generate_value_container%field_values%string_values = field_values%string_values
+    end if
+  
+    ! Deep copy map_values if present
+    generate_value_container%field_values%map_values = field_values%map_values
+
   end function generate_value_container  
 
   !> Retrieves or adds ordering for a specific field (and MONC source)
@@ -449,7 +486,7 @@ contains
         allocate(get_or_add_field_ordering)
         get_or_add_field_ordering%last_timestep_access=0
         get_or_add_field_ordering%last_time_access = merge(                                   &
-                    nint(model_initial_time - modulo(real(model_initial_time),real(frequency))), &
+                    nint(model_initial_time - modulo(real(model_initial_time), real(frequency))), &
                     0,                                                                        &
                     frequency .gt. 0 )
         get_or_add_field_ordering%frequency=frequency

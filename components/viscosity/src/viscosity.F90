@@ -4,7 +4,7 @@ module viscosity_mod
   use monc_component_mod, only : COMPONENT_ARRAY_FIELD_TYPE, &
       COMPONENT_DOUBLE_DATA_TYPE, component_descriptor_type, &
       component_field_value_type, component_field_information_type
-  use optionsdatabase_mod, only : options_get_integer
+  use optionsdatabase_mod, only : options_get_integer, options_get_logical
   use state_mod, only : FORWARD_STEPPING, model_state_type
   use prognostics_mod, only : prognostic_field_type
   use grids_mod, only : Z_INDEX, X_INDEX, Y_INDEX
@@ -12,7 +12,7 @@ module viscosity_mod
   use halo_communication_mod, only : copy_buffer_to_field, perform_local_data_copy_for_field, complete_nonblocking_halo_swap, &
        copy_buffer_to_corner
   use registry_mod, only : is_component_enabled
-  use logging_mod, only : LOG_ERROR, LOG_WARN, log_master_log
+  use logging_mod, only : LOG_ERROR, LOG_INFO, LOG_WARN, log_master_log
 
   implicit none
 
@@ -167,6 +167,8 @@ contains
     type(model_state_type), target, intent(inout) :: current_state
 
     integer :: z_size, y_size, x_size
+    
+!    call log_master_log(LOG_INFO, "Initialize viscosity.")
 
     z_size=current_state%local_grid%size(Z_INDEX) + current_state%local_grid%halo_size(Z_INDEX) * 2
     y_size=current_state%local_grid%size(Y_INDEX) + current_state%local_grid%halo_size(Y_INDEX) * 2
@@ -175,7 +177,7 @@ contains
 
     z_size=current_state%global_grid%size(Z_INDEX)
     allocate(u_viscosity(z_size), v_viscosity(z_size), w_viscosity(z_size))
-
+    
     ! Tendency Logicals
     l_tend_pr_tot_u   = current_state%u%active 
     l_tend_pr_tot_v   = current_state%v%active

@@ -1,0 +1,19 @@
+<!--  Please enter any necessary conditions for the use of these diagnostics here.
+
+-->
+
+<data-definition name="gaussiancloud_fields_data" frequency="{3d_sampling_frequency}" namespace="gaussiancloud_fieldsns"> 
+  <field name="delta_q" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="sigma_s" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="delta_qcl" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="qcl" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="cloud_fraction" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+</data-definition>
+
+<group name="gaussiancloud_fields" namespace="gaussiancloud_fieldsns"> 
+  <member name="delta_q"/> 
+  <member name="sigma_s"/>
+  <member name="delta_qcl"/> 
+  <member name="qcl"/> 
+  <member name="cloud_fraction"/>
+</group> 

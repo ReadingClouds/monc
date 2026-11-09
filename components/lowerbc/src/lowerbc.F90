@@ -13,6 +13,7 @@ module lowerbc_mod
   use registry_mod, only : is_component_enabled
   use logging_mod, only : LOG_ERROR, log_master_log
   use q_indices_mod, only: get_q_index, standard_q_names
+  use ca_indices_mod, only: get_ca_index, standard_ca_names
   use optionsdatabase_mod, only : options_get_real, options_get_logical
   use mpi, only: MPI_REQUEST_NULL, MPI_STATUSES_IGNORE
   implicit none
@@ -76,6 +77,7 @@ contains
     if (current_state%th%active) num_wrapped_fields=1
     num_wrapped_fields=num_wrapped_fields+current_state%number_q_fields
     num_wrapped_fields=num_wrapped_fields+current_state%n_tracers
+    num_wrapped_fields=num_wrapped_fields+current_state%number_ca_fields
 
     if (num_wrapped_fields .gt. 0) then
       if (current_state%parallel%my_coords(Y_INDEX) == 0  .or. &
@@ -203,34 +205,35 @@ contains
       if (current_state%field_stepping == FORWARD_STEPPING) then
         call compute_lower_boundary_conditions(current_state, current_y_index, current_x_index, &
              current_state%u, current_state%v, current_state%th, current_state%th, current_state%q, current_state%q, &
-             current_state%tracer, current_state%tracer)
+             current_state%tracer, current_state%tracer, current_state%ca, current_state%ca)
       else
         if (current_state%scalar_stepping == FORWARD_STEPPING) then
           call compute_lower_boundary_conditions(current_state, current_y_index, current_x_index, &
              current_state%zu, current_state%zv, current_state%th, current_state%zth, current_state%q, current_state%zq, &
-             current_state%tracer, current_state%ztracer)
+             current_state%tracer, current_state%ztracer, current_state%ca, current_state%zca)
         else
           call compute_lower_boundary_conditions(current_state, current_y_index, current_x_index, &
              current_state%zu, current_state%zv, current_state%zth, current_state%zth, current_state%zq, current_state%zq, &
-             current_state%ztracer, current_state%ztracer)
+             current_state%ztracer, current_state%ztracer, current_state%zca, current_state%zca)
         end if    ! Check scalar_stepping
       end if    ! Check field_stepping
     end if    ! check immersed bounary enabled
   end subroutine timestep_callback  
 
   subroutine compute_lower_boundary_conditions(current_state, current_y_index, current_x_index, &
-      zu, zv, zth, th, zq, q, ztracer, tracer)
+      zu, zv, zth, th, zq, q, ztracer, tracer, zca, ca)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zu, zv, th, zth
     type(prognostic_field_type), dimension(:), intent(inout) :: q, zq
     type(prognostic_field_type), dimension(:), intent(inout) :: tracer, ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: ca, zca
     integer, intent(in) :: current_y_index, current_x_index
 
     integer :: n
     real(kind=DEFAULT_PRECISION) :: horizontal_velocity_at_k2
 
     if (.not. current_state%use_viscosity_and_diffusion .or. .not. current_state%use_surface_boundary_conditions) then
-       call simple_boundary_values(current_state, current_y_index, current_x_index, th, q)
+       call simple_boundary_values(current_state, current_y_index, current_x_index, th, q, ca)
     else
        ! one level in for the halo-column
        if (.not. (current_state%column_local_y .lt. current_state%local_grid%local_domain_start_index(Y_INDEX)-1 .or.&
@@ -241,9 +244,9 @@ contains
           !if (.not. current_state%halo_column) then
           ! Include one halo to ensure that the halo is set in tvdadvection. This is done using the 
           ! logic from the timestep callback in tvdadvection in the timestep callback above
-         if(.not.current_state%immersed%ib_enabled)then
+         if (.not.current_state%immersed%ib_enabled) then
 
-            horizontal_velocity_at_k2=0.0_DEFAULT_PRECISION
+           horizontal_velocity_at_k2=0.0_DEFAULT_PRECISION
 #ifdef U_ACTIVE
            horizontal_velocity_at_k2=(0.5_DEFAULT_PRECISION*(current_state%zu%data(2,current_y_index,current_x_index)+&
                 zu%data(2,current_y_index,current_x_index-1))+ current_state%ugal)**2
@@ -271,6 +274,8 @@ contains
              call compute_tracer_lower_boundary_conditions(current_state, current_y_index, current_x_index, ztracer, tracer)
            end if
   
+           ! Need Circle A lower bc here
+
            current_state%dis%data(1, current_y_index, current_x_index)=0.0_DEFAULT_PRECISION
            current_state%dis_th%data(1, current_y_index, current_x_index)=0.0_DEFAULT_PRECISION
   
@@ -278,28 +283,39 @@ contains
               do n=1, current_state%number_q_fields
                  current_state%disq(n)%data(1,current_y_index,current_x_index)=0.0_DEFAULT_PRECISION
               end do
-          end if
+           end if
           
-          !-----------------------
-          ! _return viscous number
-          !-----------------------
+           !-----------------------
+           ! _return viscous number
+           !-----------------------
   
-          current_state%cvis=max( current_state%cvis, &
+           current_state%cvis=max( current_state%cvis, &
                                   max(current_state%vis_coefficient%data(1, current_y_index, current_x_index),  &
                                       current_state%diff_coefficient%data(1, current_y_index, current_x_index)) &
                                         *viscous_courant_coefficient )
-          !            CVIS will be multiplied by DTM_X4 in TESTCFL
+           !            CVIS will be multiplied by DTM_X4 in TESTCFL
 
-        end if ! if not IB point
+        
+         !-----------------------
+         ! _return viscous number
+        !-----------------------
+!        current_state%cvis=max(current_state%vis_coefficient%data(1, current_y_index, current_x_index),  &
+!                               current_state%diff_coefficient%data(1, current_y_index, current_x_index)) &
+!                               *viscous_courant_coefficient
 
-      else if (current_x_index == 1 .and. current_y_index == 1) then
+!        current_state%cvis=max(current_state%cvis,max(current_state%vis_coefficient%data(1, current_y_index, current_x_index),&
+!             current_state%diff_coefficient%data(1, current_y_index, current_x_index))*viscous_courant_coefficient)
+        !            CVIS will be multiplied by DTM_X4 in TESTCFL
+        ! cvis here isn't cvis as applied, but previous value is, so it makes no sense to include it in the 'max'.
+       end if ! if not IB point
+     else if (current_x_index == 1 .and. current_y_index == 1) then
         call register_async_wrapping_recv_requests(current_state)
-      else if (current_x_index == current_state%local_grid%local_domain_end_index(X_INDEX)+&
-               current_state%local_grid%halo_size(X_INDEX) .and. current_y_index == &
-               current_state%local_grid%local_domain_end_index(Y_INDEX)+current_state%local_grid%halo_size(Y_INDEX)) then
-        call complete_async_wrapping(current_state, zth, zq, ztracer)
-      end if
-    end if
+     else if (current_x_index == current_state%local_grid%local_domain_end_index(X_INDEX)+&
+             current_state%local_grid%halo_size(X_INDEX) .and. current_y_index == &
+             current_state%local_grid%local_domain_end_index(Y_INDEX)+current_state%local_grid%halo_size(Y_INDEX)) then
+        call complete_async_wrapping(current_state, zth, zq, ztracer, zca)
+     end if
+  end if
   end subroutine compute_lower_boundary_conditions
 
   !> Registers asynchronous wrapping recv requests as needed
@@ -323,22 +339,23 @@ contains
   !! @param current_state The current model state
   !! @param zth Temperature field
   !! @param zq Q fields
-  subroutine complete_async_wrapping(current_state, zth, zq, ztracer)
+  subroutine complete_async_wrapping(current_state, zth, zq, ztracer, zca)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zth
     type(prognostic_field_type), dimension(:), intent(inout) :: zq
     type(prognostic_field_type), dimension(:), intent(inout) :: ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: zca
 
     integer :: ierr, n
 
     if (allocated(x_wrapping_send_buffer) .or. allocated(y_wrapping_send_buffer)) then
       if (allocated(y_wrapping_send_buffer)) then
         if (current_state%parallel%my_coords(Y_INDEX) == 0) then
-          call package_y_wrapping_send_buffer(current_state, zth, zq, ztracer,                              &
+          call package_y_wrapping_send_buffer(current_state, zth, zq, ztracer, zca,                         &
                                               current_state%local_grid%local_domain_start_index(Y_INDEX),   &
                                               current_state%local_grid%local_domain_start_index(Y_INDEX)+1)        
         else
-          call package_y_wrapping_send_buffer(current_state, zth, zq, ztracer,                              &
+          call package_y_wrapping_send_buffer(current_state, zth, zq, ztracer, zca,                         &
                                               current_state%local_grid%local_domain_end_index(Y_INDEX)-1,   &
                                               current_state%local_grid%local_domain_end_index(Y_INDEX))        
         end if        
@@ -348,11 +365,11 @@ contains
       end if
       if (allocated(x_wrapping_send_buffer)) then
         if (current_state%parallel%my_coords(X_INDEX) == 0) then
-          call package_x_wrapping_send_buffer(current_state, zth, zq, ztracer,                              &
+          call package_x_wrapping_send_buffer(current_state, zth, zq, ztracer, zca,                         &
                                               current_state%local_grid%local_domain_start_index(X_INDEX),   &
                                               current_state%local_grid%local_domain_start_index(X_INDEX)+1)        
         else
-          call package_x_wrapping_send_buffer(current_state, zth, zq, ztracer,                              &
+          call package_x_wrapping_send_buffer(current_state, zth, zq, ztracer, zca,                         &
                                               current_state%local_grid%local_domain_end_index(X_INDEX)-1,   &
                                               current_state%local_grid%local_domain_end_index(X_INDEX))        
         end if        
@@ -366,18 +383,18 @@ contains
       wrapping_comm_requests=MPI_REQUEST_NULL
       if (allocated(y_wrapping_recv_buffer)) then
         if (current_state%parallel%my_coords(Y_INDEX) == 0) then
-          call unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, 1, 2)
+          call unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, 1, 2)
         else
-          call unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, &
+          call unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, &
                current_state%local_grid%local_domain_end_index(Y_INDEX)+1, &
                current_state%local_grid%local_domain_end_index(Y_INDEX)+2)          
         end if
       end if
       if (allocated(x_wrapping_recv_buffer)) then
         if (current_state%parallel%my_coords(X_INDEX) == 0) then
-          call unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, 1, 2)
+          call unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, 1, 2)
         else
-          call unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, &
+          call unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, &
                current_state%local_grid%local_domain_end_index(X_INDEX)+1, &
                current_state%local_grid%local_domain_end_index(X_INDEX)+2)          
         end if
@@ -412,6 +429,16 @@ contains
              ztracer(n)%data(1, current_state%local_grid%local_domain_start_index(Y_INDEX)+1, :)
         end do
       end if
+      if (current_state%number_ca_fields .gt. 0) then
+        do n=1, current_state%number_ca_fields
+          zca(n)%data(1,1,:)=zca(n)%data(1, current_state%local_grid%local_domain_end_index(Y_INDEX)-1, :)
+          zca(n)%data(1,2,:)=zca(n)%data(1, current_state%local_grid%local_domain_end_index(Y_INDEX), :)
+          zca(n)%data(1,current_state%local_grid%local_domain_end_index(Y_INDEX)+1,:)=&
+             zca(n)%data(1, current_state%local_grid%local_domain_start_index(Y_INDEX), :)
+          zca(n)%data(1,current_state%local_grid%local_domain_end_index(Y_INDEX)+2,:)=&
+             zca(n)%data(1, current_state%local_grid%local_domain_start_index(Y_INDEX)+1, :)
+        end do
+      end if
     end if
 
     if (current_state%parallel%my_rank == x_wrapping_target_id) then
@@ -423,6 +450,7 @@ contains
         zth%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)+2)=&
              zth%data(1,:,current_state%local_grid%local_domain_start_index(X_INDEX)+1)
       end if
+
       if (current_state%number_q_fields .gt. 0) then
         do n=1, current_state%number_q_fields
           zq(n)%data(1,:,1)=zq(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)-1)
@@ -433,6 +461,7 @@ contains
                zq(n)%data(1,:,current_state%local_grid%local_domain_start_index(X_INDEX)+1)
         end do
       end if
+      
       if (current_state%n_tracers .gt. 0) then
         do n=1, current_state%n_tracers
           ztracer(n)%data(1,:,1)=ztracer(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)-1)
@@ -443,6 +472,18 @@ contains
                ztracer(n)%data(1,:,current_state%local_grid%local_domain_start_index(X_INDEX)+1)
         end do
       end if
+      
+      if (current_state%number_ca_fields .gt. 0) then
+        do n=1, current_state%number_ca_fields
+          zca(n)%data(1,:,1)=zca(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)-1)
+          zca(n)%data(1,:,2)=zca(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX))
+          zca(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)+1)=&
+               zca(n)%data(1,:,current_state%local_grid%local_domain_start_index(X_INDEX))
+          zca(n)%data(1,:,current_state%local_grid%local_domain_end_index(X_INDEX)+2)=&
+               zca(n)%data(1,:,current_state%local_grid%local_domain_start_index(X_INDEX)+1)
+        end do
+      end if
+      
     end if
   end subroutine complete_async_wrapping
 
@@ -453,11 +494,12 @@ contains
   !! @param ztracer tracer fields
   !! @param first_y_index The first Y index to read from the data field
   !! @param second_y_index The second Y index to read from the data field
-  subroutine package_y_wrapping_send_buffer(current_state, zth, zq, ztracer, first_y_index, second_y_index)
+  subroutine package_y_wrapping_send_buffer(current_state, zth, zq, ztracer, zca, first_y_index, second_y_index)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zth
     type(prognostic_field_type), dimension(:), intent(inout) :: zq
     type(prognostic_field_type), dimension(:), intent(inout) :: ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: zca
     integer, intent(in) :: first_y_index, second_y_index
 
     integer :: index_start, n
@@ -473,14 +515,21 @@ contains
         y_wrapping_send_buffer(:,1,index_start+n)=zq(n)%data(1,first_y_index,:)
         y_wrapping_send_buffer(:,2,index_start+n)=zq(n)%data(1,second_y_index,:)
       end do
-      index_start = index_start + current_state%number_q_fields
+      index_start=index_start+current_state%number_q_fields
     end if
     if (current_state%n_tracers .gt. 0) then
       do n=1, current_state%n_tracers
         y_wrapping_send_buffer(:,1,index_start+n)=ztracer(n)%data(1,first_y_index,:)
         y_wrapping_send_buffer(:,2,index_start+n)=ztracer(n)%data(1,second_y_index,:)
       end do
-      index_start = index_start + current_state%n_tracers
+      index_start=index_start+current_state%n_tracers
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        y_wrapping_send_buffer(:,1,index_start+n)=zca(n)%data(1,first_y_index,:)
+        y_wrapping_send_buffer(:,2,index_start+n)=zca(n)%data(1,second_y_index,:)
+      end do
+      index_start=index_start+current_state%number_ca_fields
     end if
   end subroutine package_y_wrapping_send_buffer
 
@@ -491,11 +540,12 @@ contains
   !! @param ztracer tracer fields
   !! @param first_x_index The first X index to read from the data field
   !! @param second_x_index The second X index to read from the data field
-  subroutine package_x_wrapping_send_buffer(current_state, zth, zq, ztracer, first_x_index, second_x_index)
+  subroutine package_x_wrapping_send_buffer(current_state, zth, zq, ztracer, zca, first_x_index, second_x_index)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zth
     type(prognostic_field_type), dimension(:), intent(inout) :: zq
     type(prognostic_field_type), dimension(:), intent(inout) :: ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: zca
     integer, intent(in) :: first_x_index, second_x_index
 
     integer :: index_start, n
@@ -511,14 +561,21 @@ contains
         x_wrapping_send_buffer(:,1,index_start+n)= zq(n)%data(1,:,first_x_index)
         x_wrapping_send_buffer(:,2,index_start+n)= zq(n)%data(1,:,second_x_index)
       end do
-      index_start = index_start + current_state%number_q_fields
+      index_start=index_start+current_state%number_q_fields
     end if
     if (current_state%n_tracers .gt. 0) then
       do n=1, current_state%n_tracers
         x_wrapping_send_buffer(:,1,index_start+n)= ztracer(n)%data(1,:,first_x_index)
         x_wrapping_send_buffer(:,2,index_start+n)= ztracer(n)%data(1,:,second_x_index)
       end do
-      index_start = index_start + current_state%n_tracers
+      index_start=index_start+current_state%n_tracers
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        x_wrapping_send_buffer(:,1,index_start+n)= zca(n)%data(1,:,first_x_index)
+        x_wrapping_send_buffer(:,2,index_start+n)= zca(n)%data(1,:,second_x_index)
+      end do
+      index_start=index_start+current_state%number_ca_fields
     end if
   end subroutine package_x_wrapping_send_buffer
 
@@ -529,11 +586,12 @@ contains
   !! @param ztracer tracer fields
   !! @param first_y_index The first Y index to read from the data field
   !! @param second_y_index The second Y index to read from the data field
-  subroutine unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, first_y_index, second_y_index)
+  subroutine unpackage_y_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, first_y_index, second_y_index)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zth
     type(prognostic_field_type), dimension(:), intent(inout) :: zq
     type(prognostic_field_type), dimension(:), intent(inout) :: ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: zca
     integer, intent(in) :: first_y_index, second_y_index
 
     integer :: index_start, n
@@ -549,14 +607,21 @@ contains
         zq(n)%data(1,first_y_index,:)=y_wrapping_recv_buffer(:,1,index_start+n)
         zq(n)%data(1,second_y_index,:)=y_wrapping_recv_buffer(:,2,index_start+n)
       end do
-      index_start = index_start + current_state%number_q_fields
+      index_start=index_start+current_state%number_q_fields
     end if
     if (current_state%n_tracers .gt. 0) then
       do n=1, current_state%n_tracers
         ztracer(n)%data(1,first_y_index,:)=y_wrapping_recv_buffer(:,1,index_start+n)
         ztracer(n)%data(1,second_y_index,:)=y_wrapping_recv_buffer(:,2,index_start+n)
       end do
-      index_start = index_start + current_state%n_tracers
+      index_start=index_start+current_state%n_tracers
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        zca(n)%data(1,first_y_index,:)=y_wrapping_recv_buffer(:,1,index_start+n)
+        zca(n)%data(1,second_y_index,:)=y_wrapping_recv_buffer(:,2,index_start+n)
+      end do
+      index_start=index_start+current_state%number_ca_fields
     end if
   end subroutine unpackage_y_wrapping_recv_buffer
 
@@ -567,11 +632,12 @@ contains
   !! @param ztracer tracer fields
   !! @param first_x_index The first X index to read from the data field
   !! @param second_x_index The second X index to read from the data field
-  subroutine unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, first_x_index, second_x_index)
+  subroutine unpackage_x_wrapping_recv_buffer(current_state, zth, zq, ztracer, zca, first_x_index, second_x_index)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: zth
     type(prognostic_field_type), dimension(:), intent(inout) :: zq
     type(prognostic_field_type), dimension(:), intent(inout) :: ztracer
+    type(prognostic_field_type), dimension(:), intent(inout) :: zca
     integer, intent(in) :: first_x_index, second_x_index
 
     integer :: index_start, n
@@ -587,14 +653,21 @@ contains
         zq(n)%data(1,:,first_x_index)=x_wrapping_recv_buffer(:,1,index_start+n)
         zq(n)%data(1,:,second_x_index)=x_wrapping_recv_buffer(:,2,index_start+n)
       end do
-      index_start = index_start + current_state%number_q_fields
+      index_start=index_start+current_state%number_q_fields
     end if
     if (current_state%n_tracers .gt. 0) then
       do n=1, current_state%n_tracers
         ztracer(n)%data(1,:,first_x_index)=x_wrapping_recv_buffer(:,1,index_start+n)
         ztracer(n)%data(1,:,second_x_index)=x_wrapping_recv_buffer(:,2,index_start+n)
       end do
-      index_start = index_start + current_state%n_tracers
+      index_start=index_start+current_state%n_tracers
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        zca(n)%data(1,:,first_x_index)=x_wrapping_recv_buffer(:,1,index_start+n)
+        zca(n)%data(1,:,second_x_index)=x_wrapping_recv_buffer(:,2,index_start+n)
+      end do
+      index_start=index_start+current_state%number_ca_fields
     end if
   end subroutine unpackage_x_wrapping_recv_buffer
 
@@ -621,8 +694,10 @@ contains
          /ustr**3))/ (1.+sqrt(1.+gammah*von_karman_constant*current_state%fbuoy*z0th/ustr**3))))
          
     ! Apply limiter (max_diff_or_visc) if set
+         
     current_state%vis_coefficient%data(1, current_y_index, current_x_index)=&
          min(current_state%vis_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)
+         
     current_state%diff_coefficient%data(1, current_y_index, current_x_index)=&
          min(current_state%diff_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)     
          
@@ -691,6 +766,13 @@ contains
     current_state%diff_coefficient%data(1, current_y_index, current_x_index)=&
          min(current_state%diff_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)     
 
+        
+    current_state%vis_coefficient%data(1, current_y_index, current_x_index)=&
+         min(current_state%vis_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)
+         
+    current_state%diff_coefficient%data(1, current_y_index, current_x_index)=&
+         min(current_state%diff_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)     
+
     if (current_state%th%active) th%data(1, current_y_index, current_x_index)=  &
          (current_state%surface_temperature_flux*current_state%global_grid%configuration%vertical%dzn(2)/&
          current_state%diff_coefficient%data(1, current_y_index, current_x_index))+th%data(2, current_y_index, current_x_index)-& 
@@ -746,8 +828,10 @@ contains
            von_karman_constant*current_state%fbuoy* (current_state%global_grid%configuration%vertical%zn(2)+ z0-z0th)/ustr**3)
 
       ! Apply limiter (max_diff_or_visc) if set
+        
       current_state%vis_coefficient%data(1, current_y_index, current_x_index)=&
            min(current_state%vis_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)
+         
       current_state%diff_coefficient%data(1, current_y_index, current_x_index)=&
            min(current_state%diff_coefficient%data(1, current_y_index, current_x_index), max_diff_or_visc)     
 
@@ -833,10 +917,11 @@ contains
     end if    
   end subroutine compute_using_fixed_surface_temperature  
 
-  subroutine simple_boundary_values(current_state, current_y_index, current_x_index, th, q)
+  subroutine simple_boundary_values(current_state, current_y_index, current_x_index, th, q, ca)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: th
     type(prognostic_field_type), dimension(:), intent(inout) :: q
+    type(prognostic_field_type), dimension(:), intent(inout) :: ca
     integer, intent(in) :: current_y_index, current_x_index
 
     integer :: n
@@ -853,6 +938,11 @@ contains
       do n=1, current_state%number_q_fields
         q(n)%data(1, current_y_index, current_x_index) = q(n)%data(2, current_y_index, current_x_index)
         if (current_state%backscatter) current_state%disq(n)%data(1, current_y_index, current_x_index) = 0.0_DEFAULT_PRECISION
+      end do
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        ca(n)%data(1, current_y_index, current_x_index) = ca(n)%data(2, current_y_index, current_x_index)
       end do
     end if
   end subroutine simple_boundary_values

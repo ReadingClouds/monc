@@ -19,10 +19,11 @@ module iobridge_mod
        FLOAT_DATA_TYPE, DOUBLE_DATA_TYPE, LOCAL_SIZES_KEY, LOCAL_START_POINTS_KEY, LOCAL_END_POINTS_KEY, NUMBER_Q_INDICIES_KEY, &
        data_sizing_description_type, definition_description_type, field_description_type, build_mpi_type_data_sizing_description,&
        build_mpi_type_field_description, build_mpi_type_definition_description, populate_mpi_type_extents, append_mpi_datatype, &
-       get_mpi_datatype_from_internal_representation, pack_scalar_field, pack_array_field, pack_map_field
+       get_mpi_datatype_from_internal_representation, pack_scalar_field, pack_array_field, pack_map_field, NUMBER_CA_INDICIES_KEY
   use mpi, only : MPI_COMM_WORLD, MPI_INT, MPI_BYTE, MPI_REQUEST_NULL, MPI_STATUSES_IGNORE, MPI_STATUS_IGNORE, MPI_STATUS_SIZE
   use q_indices_mod, only : q_metadata_type, get_max_number_q_indices, get_indices_descriptor, get_number_active_q_indices
   use tracers_mod, only : get_tracer_name, reinitialise_trajectories, traj_interval
+  use ca_indices_mod, only : ca_metadata_type, get_max_number_ca_indices, get_ca_indices_descriptor, get_number_active_ca_indices
 
   use conditional_diagnostics_column_mod, only : ncond, ndiag, cond_request, diag_request, cond_long, diag_long
   use socrates_couple_mod, only : socrates_couple_get_descriptor
@@ -389,6 +390,10 @@ contains
       raw_generic=>generate_sendable_description(get_number_active_q_indices())
       call c_put_generic(sendable_fields, "q_indicies", raw_generic, .false.)
     end if
+    if (get_number_active_ca_indices() .gt. 0) then
+      raw_generic=>generate_sendable_description(get_number_active_ca_indices())
+      call c_put_generic(sendable_fields, "ca_indicies", raw_generic, .false.)
+    end if
     raw_generic=>generate_sendable_description(3)
     call c_put_generic(sendable_fields, "local_grid_size", raw_generic, .false.)
     call c_put_generic(sendable_fields, "local_grid_start", raw_generic, .false.)
@@ -462,6 +467,11 @@ contains
       call c_put_generic(sendable_fields, "tracer", raw_generic, .false.)
       call c_put_generic(sendable_fields, "ztracer", raw_generic, .false.)
     end if
+    if (current_state%number_ca_fields .gt. 0) then
+      raw_generic=>generate_sendable_description(z_size, y_size, x_size, current_state%number_ca_fields)
+      call c_put_generic(sendable_fields, "ca", raw_generic, .false.)
+      call c_put_generic(sendable_fields, "zca", raw_generic, .false.)
+    end if
     ! need to dump heating rate tendency from socrates radiation
     if (is_component_enabled(current_state%options_database, "socrates_couple")) then
        raw_generic=>generate_sendable_description(z_size, y_size, x_size)
@@ -480,6 +490,12 @@ contains
         call c_put_generic(sendable_fields, "w_dwn", raw_generic, .false.)
       end if
     end if 
+    
+    if (is_component_enabled(current_state%options_database, "diffusion")) then
+      raw_generic=>generate_sendable_description(z_size, y_size, x_size)
+      call c_put_generic(sendable_fields, "diff", raw_generic, .false.) 
+      call c_put_generic(sendable_fields, "vis",  raw_generic, .false.) 
+    endif
 
   end subroutine populate_globally_visible_sendable_fields  
 
@@ -534,11 +550,15 @@ contains
     real(kind=DEFAULT_PRECISION) :: dreal
 
     number_unique_fields=c_size(unique_field_names)
-    allocate(data_description(number_unique_fields+4))
+    allocate(data_description(number_unique_fields+5))
     request_handles(1)=send_data_field_sizes_to_server(current_state, mpi_type_data_sizing_description, &
        data_description, number_unique_fields)
-    buffer_size=(kind(dreal)*current_state%local_grid%size(Z_INDEX))*2 + (STRING_LENGTH * current_state%number_q_fields &
-                 + STRING_LENGTH * current_state%n_tracers + 4*ncond*STRING_LENGTH + 2*ndiag*STRING_LENGTH )
+    buffer_size=(kind(dreal)*current_state%local_grid%size(Z_INDEX))*2             &
+              + (STRING_LENGTH * current_state%number_q_fields                     &
+               + STRING_LENGTH * current_state%n_tracers                           &
+               + STRING_LENGTH * current_state%number_ca_fields                    &
+               + 4*ncond*STRING_LENGTH                                             &
+               + 2*ndiag*STRING_LENGTH )
     allocate(buffer(buffer_size))
     request_handles(2)=send_general_monc_information_to_server(current_state, buffer)
     call mpi_waitall(2, request_handles, MPI_STATUSES_IGNORE, ierr)
@@ -561,7 +581,7 @@ contains
     character(len=STRING_LENGTH) :: field_name
     
     call package_local_monc_decomposition_into_descriptions(current_state, data_description)
-    next_index=5
+    next_index=6 ! Needs changing if package_local_monc_decomposition_into_descriptions changes number.
     do i=1, number_unique_fields
       field_name=c_key_at(unique_field_names, i)
       if (c_contains(sendable_fields, field_name)) then
@@ -583,8 +603,9 @@ contains
     type(model_state_type), target, intent(inout) :: current_state
     character, dimension(:), intent(inout) :: buffer
     
-    character(len=STRING_LENGTH) :: q_field_name, tracer_name, cd_field_name
+    character(len=STRING_LENGTH) :: q_field_name, tracer_name, cd_field_name, ca_field_name
     type(q_metadata_type) :: q_meta_data
+    type(ca_metadata_type) :: ca_meta_data
     integer :: current_loc, n, ierr, request_handle    
     
     current_loc=1
@@ -607,6 +628,18 @@ contains
                       current_state%radioactive_tracer_index, &
                       current_state%n_radioactive_tracers, current_state%n_tracers)
         current_loc=pack_scalar_field(buffer, current_loc, string_value=tracer_name)
+      end do
+    end if
+
+    if (current_state%number_ca_fields .gt. 0) then
+      do n=1, current_state%number_ca_fields
+        ca_meta_data=get_ca_indices_descriptor(n)       
+        if (ca_meta_data%l_used) then
+          ca_field_name=ca_meta_data%name
+        else
+          ca_field_name="cafield_"//trim(conv_to_string(n))
+        end if        
+        current_loc=pack_scalar_field(buffer, current_loc, string_value=ca_field_name)
       end do
     end if
     
@@ -663,6 +696,8 @@ contains
     sizing_info%number_dimensions=1
     sizing_info%dimensions(1)=get_number_active_q_indices()
     call assemble_individual_description(data_description, 4, NUMBER_Q_INDICIES_KEY, sizing_info)
+    sizing_info%dimensions(1)=get_number_active_ca_indices()
+    call assemble_individual_description(data_description, 5, NUMBER_CA_INDICIES_KEY, sizing_info)
   end subroutine package_local_monc_decomposition_into_descriptions  
 
   !> Retrieves the sizing information associated with a specific field
@@ -1028,6 +1063,9 @@ contains
     else if (field%name .eq. "nradtracers") then
       pack_scalar_into_send_buffer=pack_scalar_field(data_definition%send_buffer, current_buffer_point, &
            int_value=current_state%n_radioactive_tracers)
+    else if (field%name .eq. "ncafields") then
+      pack_scalar_into_send_buffer=pack_scalar_field(data_definition%send_buffer, current_buffer_point, &
+           int_value=current_state%number_ca_fields)
     else if (field%name .eq. "dtm") then
       pack_scalar_into_send_buffer=pack_scalar_field(data_definition%send_buffer, current_buffer_point, &
            real_value=current_state%dtm)
@@ -1100,6 +1138,8 @@ contains
     integer :: i
     type(q_metadata_type) :: specific_q_data
     type(hashmap_type) :: q_indicies_map
+    type(ca_metadata_type) :: specific_ca_data
+    type(hashmap_type) :: ca_indicies_map
 
     if (field%name .eq. "options_database") then
       pack_map_into_send_buffer=pack_map_field(data_definition%send_buffer, current_buffer_point, current_state%options_database)
@@ -1112,6 +1152,15 @@ contains
       end do
       pack_map_into_send_buffer=pack_map_field(data_definition%send_buffer, current_buffer_point, q_indicies_map)
       call c_free(q_indicies_map)
+    else if (field%name .eq. "ca_indicies") then
+      do i=1, get_max_number_ca_indices()
+        specific_ca_data=get_ca_indices_descriptor(i)
+        if (specific_ca_data%l_used) then
+          call c_put_integer(ca_indicies_map, specific_ca_data%name, i)
+        end if
+      end do
+      pack_map_into_send_buffer=pack_map_field(data_definition%send_buffer, current_buffer_point, ca_indicies_map)
+      call c_free(ca_indicies_map)
     end if    
   end function pack_map_into_send_buffer  
 
@@ -1212,6 +1261,12 @@ contains
     else if (field%name .eq. "ztracer") then
       pack_array_into_send_buffer=pack_q_fields(data_definition%send_buffer, current_state%ztracer, current_state%n_tracers, &
            current_buffer_point, current_state%local_grid)
+    else if (field%name .eq. "ca") then
+      pack_array_into_send_buffer=pack_q_fields(data_definition%send_buffer, current_state%ca, current_state%number_ca_fields, &
+           current_buffer_point, current_state%local_grid)
+    else if (field%name .eq. "zca") then
+      pack_array_into_send_buffer=pack_q_fields(data_definition%send_buffer, current_state%zca, current_state%number_ca_fields, &
+           current_buffer_point, current_state%local_grid)
     else if (field%name .eq. "th") then
       pack_array_into_send_buffer=pack_prognostic_flow_field(data_definition%send_buffer, current_state%th, current_buffer_point,&
            current_state%local_grid)
@@ -1239,6 +1294,12 @@ contains
 !!$    else if (field%name .eq. "lww_down_surf") then
 !!$      pack_array_into_send_buffer=pack_prognostic_flow_field(data_definition%send_buffer,  &
 !!$            current_state%sth_sw, current_buffer_point, current_state%local_grid)  
+    else if (field%name .eq. "diff") then
+      pack_array_into_send_buffer=pack_prognostic_flow_field(data_definition%send_buffer, current_state%diff_coefficient, &
+      current_buffer_point, current_state%local_grid)
+    else if (field%name .eq. "vis") then
+      pack_array_into_send_buffer=pack_prognostic_flow_field(data_definition%send_buffer, current_state%vis_coefficient, &
+      current_buffer_point, current_state%local_grid)
     else
        ! Handle component field here
        pack_array_into_send_buffer=handle_component_field_array_packing_into_send_buffer(current_state, &

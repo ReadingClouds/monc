@@ -97,6 +97,11 @@ module writer_types_mod
      integer, dimension(:), allocatable :: dimensions
   end type collective_tracer_representation_type
 
+  !< Represents the dimension information associated with a ca field that is written collectively
+  type collective_ca_field_representation_type
+     integer, dimension(:), allocatable :: dimensions
+  end type collective_ca_field_representation_type
+
   type netcdf_diagnostics_timeseries_type
      integer :: netcdf_dim_id, netcdf_var_id, num_entries
      real :: last_write_point
@@ -114,7 +119,7 @@ module writer_types_mod
 
   public writer_type, writer_field_type, write_field_collective_values_type, pending_write_type, &
        perform_time_manipulation, collective_q_field_representation_type,  collective_tracer_representation_type, &
-       netcdf_diagnostics_timeseries_type, &
+       collective_ca_field_representation_type,  netcdf_diagnostics_timeseries_type, &
        netcdf_diagnostics_type, serialise_writer_type, unserialise_writer_type, serialise_data_values_type, &
        unserialise_data_values_type, write_field_collective_descriptor_type, write_field_collective_monc_info_type, &
        prepare_to_serialise_data_values_type, prepare_to_serialise_writer_type

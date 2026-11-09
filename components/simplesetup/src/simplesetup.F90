@@ -10,6 +10,8 @@ module simplesetup_mod
        options_get_integer_array, options_get_real_array
   use tracers_mod, only : get_tracer_options
   use q_indices_mod, only: get_q_index, standard_q_names
+  use ca_indices_mod, only: get_ca_index, standard_ca_names
+  use circle_a_mod, only: circle_a_enabled
   use registry_mod, only : is_component_enabled
 
   implicit none
@@ -118,6 +120,35 @@ contains
       
     endif ! allocate tracers
 
+    if (current_state%number_ca_fields .gt. 0) then
+      allocate(current_state%ca(current_state%number_ca_fields), &
+               current_state%zca(current_state%number_ca_fields),&
+               current_state%sca(current_state%number_ca_fields))
+      do i=1, current_state%number_ca_fields
+        call allocate_prognostic(current_state%ca(i), alloc_z, alloc_y, alloc_x, DUAL_GRID, DUAL_GRID, DUAL_GRID)
+        call allocate_prognostic(current_state%zca(i), alloc_z, alloc_y, alloc_x, DUAL_GRID, DUAL_GRID, DUAL_GRID)
+        call allocate_prognostic(current_state%sca(i), alloc_z, alloc_y, alloc_x, DUAL_GRID, DUAL_GRID, DUAL_GRID)
+      end do
+      
+      ! Set standard ca indices
+      current_state%tke_index    =get_ca_index(standard_ca_names%TKE , 'simplesetup') 
+      current_state%thl_thl_index=get_ca_index(standard_ca_names%THL_THL , 'simplesetup')
+      current_state%qt_qt_index  =get_ca_index(standard_ca_names%QT_QT , 'simplesetup') 
+      current_state%thl_qt_index =get_ca_index(standard_ca_names%THL_QT , 'simplesetup') 
+      current_state%u_u_index    =get_ca_index(standard_ca_names%U_U , 'simplesetup')
+      current_state%u_v_index    =get_ca_index(standard_ca_names%U_V , 'simplesetup') 
+      current_state%u_w_index    =get_ca_index(standard_ca_names%U_W , 'simplesetup') 
+      current_state%v_v_index    =get_ca_index(standard_ca_names%V_V , 'simplesetup') 
+      current_state%v_w_index    =get_ca_index(standard_ca_names%V_W , 'simplesetup') 
+      current_state%w_w_index    =get_ca_index(standard_ca_names%W_W , 'simplesetup')
+      current_state%u_thl_index  =get_ca_index(standard_ca_names%U_THL , 'simplesetup') 
+      current_state%v_thl_index  =get_ca_index(standard_ca_names%V_THL , 'simplesetup') 
+      current_state%w_thl_index  =get_ca_index(standard_ca_names%W_THL , 'simplesetup')
+      current_state%u_qt_index   =get_ca_index(standard_ca_names%U_QT , 'simplesetup') 
+      current_state%v_qt_index   =get_ca_index(standard_ca_names%V_QT , 'simplesetup')
+      current_state%w_qt_index   =get_ca_index(standard_ca_names%W_QT , 'simplesetup')
+    end if
+
     ! Set arrays for radiative heating rates - Note: this should be protected by a switch
     call allocate_prognostic(current_state%sth_lw, alloc_z, alloc_y, alloc_x, DUAL_GRID, DUAL_GRID, DUAL_GRID)
     call allocate_prognostic(current_state%sth_sw, alloc_z, alloc_y, alloc_x, DUAL_GRID, DUAL_GRID, DUAL_GRID) 
@@ -209,10 +240,18 @@ contains
     current_state%rhobous=options_get_real(current_state%options_database, "rhobous")
     current_state%thref0=options_get_real(current_state%options_database, "thref0")
     current_state%number_q_fields=options_get_integer(current_state%options_database, "number_q_fields")
+    if (options_get_logical(current_state%options_database, "circle_a_enabled")) then
+      current_state%number_ca_fields=options_get_integer(current_state%options_database, "number_ca_fields")
+    else
+      call log_master_log(LOG_INFO, "Circle A not enabled so number_ca_fields set to 0.")
+      current_state%number_ca_fields=0
+    end if
     current_state%surface_pressure=options_get_real(current_state%options_database, "surface_pressure")
     current_state%surface_reference_pressure=options_get_real(current_state%options_database, "surface_reference_pressure")
 
     current_state%use_anelastic_equations=options_get_logical(current_state%options_database, "use_anelastic_equations")
+    
+    current_state%mixing_length_param=options_get_logical(current_state%options_database, "use_mixing_length_param")
 
     current_state%origional_vertical_grid_setup=options_get_logical(current_state%options_database, &
          "origional_vertical_grid_setup")

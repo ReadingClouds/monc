@@ -36,6 +36,9 @@ module gridmanager_mod
   real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: qinit
   integer :: iqv  ! index for vapour
 
+  integer :: niter
+  real(kind=DEFAULT_PRECISION) :: sm_fact
+
   public gridmanager_get_descriptor
 
 contains
@@ -55,7 +58,7 @@ contains
   subroutine initialise_callback(current_state)
     type(model_state_type), target, intent(inout) :: current_state
 
-    integer :: dimensions, k
+    integer :: dimensions
 
     if (.not. current_state%initialised) then
       call log_log(LOG_ERROR, "Must initialise the model state_mod before constructing the grid properties")
@@ -97,6 +100,11 @@ contains
          vertical_grid%q_rand, vertical_grid%theta_rand, vertical_grid%w_subs, vertical_grid%w_rand, &
          vertical_grid%q_force, vertical_grid%theta_force, vertical_grid%u_force, vertical_grid%v_force &
          )
+         
+!    if current_state%mixing_length_param then
+!      deallocate(vertical_grid%r_Cs_env_ml, vertical_grid%r_Cs_IC_ml, vertical_grid%r_Cth_env_ml, vertical_grid%r_Cth_IC_ml)
+!    end if
+
   end subroutine finalise_callback  
 
   !> Will initialise the immersed boundary ghost points, image points, surface
@@ -2084,7 +2092,11 @@ contains
     integer :: nq_init ! The number of q fields to initialize
     integer :: nzq     ! The number of input levels for q_init
     integer :: i,j,n, k,  i_tracer ! loop counters
-    integer :: iq  ! temporary q varible index
+    integer :: iq  ! temporary q variable index
+    integer :: ica  ! temporary ca variable index
+    
+    integer :: ntop, iiter
+    
 
     real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: f_init_pl_q       ! Initial node values for q variables
     real(kind=DEFAULT_PRECISION), dimension(:), allocatable :: z_init_pl_q      ! Initial node height values for q variables
@@ -2110,9 +2122,13 @@ contains
     
     real(kind=DEFAULT_PRECISION), allocatable :: f_init_pl_q_tmp(:) !temporary 1D storage of initial q field
     real(kind=DEFAULT_PRECISION), allocatable :: zgrid(:)  ! z grid to use in interpolation
+    
+    real(kind=DEFAULT_PRECISION), allocatable :: temp(:)
 
     real(kind=DEFAULT_PRECISION) :: zztop ! top of the domain
     real(kind=DEFAULT_PRECISION) :: qsat
+    
+    ntop = current_state%global_grid%size(Z_INDEX)
 
     allocate(zgrid(current_state%local_grid%local_domain_end_index(Z_INDEX)))
     
@@ -2180,6 +2196,21 @@ contains
            call log_master_log(LOG_ERROR, "Non-anelastic equation set and l_matchthref are incompatible")
          end if
          current_state%global_grid%configuration%vertical%thref = current_state%global_grid%configuration%vertical%theta_init
+         
+         niter = options_get_integer(current_state%options_database, "n_thref_smooth")
+         sm_fact = options_get_real(current_state%options_database, "thref_smooth_factor")
+         call log_master_log(LOG_INFO, "Smoothing reference theta profile "&
+           //trim(conv_to_string(niter))//" times with factor "//trim(conv_to_string(sm_fact ))) 
+
+         allocate(temp(ntop))
+         do iiter = 1, niter
+           temp = current_state%global_grid%configuration%vertical%thref
+           do k=2, ntop-1
+             current_state%global_grid%configuration%vertical%thref(k) = &
+               sm_fact * temp(k-1) + (1 - 2.0 * sm_fact) * temp(k) + sm_fact * temp(k+1)
+           end do
+         end do
+         deallocate(temp)
       end if
       if (.not. current_state%continuation_run) then
         do i=current_state%local_grid%local_domain_start_index(X_INDEX), current_state%local_grid%local_domain_end_index(X_INDEX)
@@ -2285,6 +2316,15 @@ contains
     if (current_state%traj_tracer_index .gt. 0) then
       if (.not. current_state%continuation_run) then
         call reinitialise_trajectories(current_state)
+      end if
+    end if
+
+    if (current_state%number_ca_fields > 0) then
+      if (.not. current_state%continuation_run) then
+        do ica=1, current_state%number_ca_fields
+          current_state%ca(ica)%data(:,:,:)=0.0_DEFAULT_PRECISION
+          current_state%zca(ica)%data(:,:,:)=0.0_DEFAULT_PRECISION
+        end do
       end if
     end if
     
@@ -2617,6 +2657,7 @@ contains
     if (.not. allocated(vertical_grid%zn)) allocate(vertical_grid%zn(n))
 
     allocate(vertical_grid%q_rand(n,nq), vertical_grid%q_init(n,nq), vertical_grid%q_force(n,nq))
+    
   end subroutine allocate_vertical_grid_data  
 
   !> Initialises the horizontal grid configurations

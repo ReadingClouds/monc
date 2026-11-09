@@ -41,12 +41,12 @@ module io_server_client_mod
        DOUBLE_DATA_TYPE=5
 
   character(len=STRING_LENGTH), parameter :: LOCAL_SIZES_KEY="local_sizes", LOCAL_START_POINTS_KEY="local_start_points", &
-       LOCAL_END_POINTS_KEY="local_end_points", NUMBER_Q_INDICIES_KEY="num_q_indicies"
+       LOCAL_END_POINTS_KEY="local_end_points", NUMBER_Q_INDICIES_KEY="num_q_indicies", NUMBER_CA_INDICIES_KEY="num_ca_indicies"
 
   public COMMAND_TAG, DATA_TAG, REGISTER_COMMAND, DEREGISTER_COMMAND, DATA_COMMAND_START, INTER_IO_COMMUNICATION, &
        SCALAR_FIELD_TYPE, ARRAY_FIELD_TYPE, MAP_FIELD_TYPE, INTEGER_DATA_TYPE, BOOLEAN_DATA_TYPE, &
        STRING_DATA_TYPE, FLOAT_DATA_TYPE, LOCAL_SIZES_KEY, LOCAL_START_POINTS_KEY, LOCAL_END_POINTS_KEY, NUMBER_Q_INDICIES_KEY, &
-       DOUBLE_DATA_TYPE, data_sizing_description_type, populate_mpi_type_extents, append_mpi_datatype, &
+       NUMBER_CA_INDICIES_KEY, DOUBLE_DATA_TYPE, data_sizing_description_type, populate_mpi_type_extents, append_mpi_datatype, &
        get_mpi_datatype_from_internal_representation, definition_description_type, field_description_type, &
        build_mpi_type_data_sizing_description, build_mpi_type_field_description, build_mpi_type_definition_description, &
        pack_scalar_field, pack_array_field, pack_map_field, get_data_description_from_name
@@ -357,6 +357,7 @@ contains
     character(len=*), intent(in) :: name
 
     integer :: i
+!    Write(6,*)"get_data_description_from_name ", name
     do i=1,size(descriptions)
       if (descriptions(i)%field_name == name) then
         if (present(field_description)) field_description=descriptions(i)

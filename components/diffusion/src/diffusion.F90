@@ -4,7 +4,7 @@ module diffusion_mod
   use monc_component_mod, only : COMPONENT_ARRAY_FIELD_TYPE, &
       COMPONENT_DOUBLE_DATA_TYPE, component_descriptor_type, &
       component_field_value_type, component_field_information_type
-  use optionsdatabase_mod, only : options_get_integer
+  use optionsdatabase_mod, only : options_get_integer, options_get_logical
   use state_mod, only : FORWARD_STEPPING, model_state_type
   use prognostics_mod, only : prognostic_field_type
   use grids_mod, only : Z_INDEX, X_INDEX, Y_INDEX
@@ -12,8 +12,10 @@ module diffusion_mod
   use halo_communication_mod, only : copy_buffer_to_field, perform_local_data_copy_for_field, complete_nonblocking_halo_swap, &
        copy_buffer_to_corner
   use registry_mod, only : is_component_enabled
-  use logging_mod, only : LOG_ERROR, LOG_WARN, log_master_log
+  use logging_mod, only : LOG_ERROR, LOG_WARN, LOG_INFO, log_master_log
   use q_indices_mod, only: get_q_index, standard_q_names
+  use ca_indices_mod, only: get_ca_index, standard_ca_names
+  use circle_a_mod, only: tke_diff_mult
 
   implicit none
 
@@ -21,9 +23,14 @@ module diffusion_mod
   private
 #endif
 
+  logical :: diffuse_ca_progs
+            
+
   real(kind=DEFAULT_PRECISION), dimension(:), allocatable :: th_diffusion
   real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: q_diffusion
   real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: tracer_diffusion
+  real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: ca_diffusion
+  
 
   ! Local tendency diagnostic variables for this component
   ! 3D tendency fields and logicals for their use
@@ -38,6 +45,8 @@ module diffusion_mod
              l_tend_pr_tot_qs,l_tend_pr_tot_qg,l_tend_pr_tot_tabs
   ! q indices
   integer :: iqv=0, iql=0, iqr=0, iqi=0, iqs=0, iqg=0
+  ! ca indices
+  integer :: i_tke=0
 
   public diffusion_get_descriptor
 
@@ -54,7 +63,7 @@ contains
 
     diffusion_get_descriptor%field_value_retrieval=>field_value_retrieval_callback
     diffusion_get_descriptor%field_information_retrieval=>field_information_retrieval_callback
-    allocate(diffusion_get_descriptor%published_fields(2+8+8+1))
+    allocate(diffusion_get_descriptor%published_fields(2+8+8+1+1))
 
     diffusion_get_descriptor%published_fields(1)="th_diffusion"
     diffusion_get_descriptor%published_fields(2)="q_diffusion"
@@ -78,6 +87,7 @@ contains
     diffusion_get_descriptor%published_fields(2+8+8)="tend_tabs_diffusion_profile_total_local"
 
     diffusion_get_descriptor%published_fields(2+8+8+1)="tracer_diffusion"
+    diffusion_get_descriptor%published_fields(2+8+8+1+1)="ca_diffusion"
 
   end function diffusion_get_descriptor
 
@@ -95,17 +105,22 @@ contains
     ! Field description is the same regardless of the specific field being retrieved
     field_information%field_type=COMPONENT_ARRAY_FIELD_TYPE
     field_information%data_type=COMPONENT_DOUBLE_DATA_TYPE
+    field_information%enabled=.true.
     if (name .eq. "q_diffusion") then
       field_information%number_dimensions=2
+      field_information%dimension_sizes(2)=current_state%number_q_fields
     else if (name .eq. "tracer_diffusion") then
       field_information%number_dimensions=2
+      field_information%dimension_sizes(2)=current_state%n_tracers
+      if (current_state%n_tracers == 0) field_information%enabled=.false.
+    else if (name .eq. "ca_diffusion") then
+      field_information%number_dimensions=2
+      field_information%dimension_sizes(2)=current_state%number_ca_fields
+      if ( (.not. diffuse_ca_progs) .or. current_state%number_ca_fields == 0) field_information%enabled=.false.
     else
       field_information%number_dimensions=1
     end if
     field_information%dimension_sizes(1)=current_state%local_grid%size(Z_INDEX)
-    if (name .eq. "q_diffusion") field_information%dimension_sizes(2)=current_state%number_q_fields
-    if (name .eq. "tracer_diffusion") field_information%dimension_sizes(2)=current_state%n_tracers
-    field_information%enabled=.true.
 
     ! Field information for 3d
     strcomp=INDEX(name, "diffusion_3d_local")
@@ -234,6 +249,8 @@ contains
     integer :: z_size, y_size, x_size
     logical :: l_qdiag
 
+    diffuse_ca_progs=options_get_logical(current_state%options_database, "diffuse_ca_progs")
+
     z_size=current_state%local_grid%size(Z_INDEX) + current_state%local_grid%halo_size(Z_INDEX) * 2
     y_size=current_state%local_grid%size(Y_INDEX) + current_state%local_grid%halo_size(Y_INDEX) * 2
     x_size=current_state%local_grid%size(X_INDEX) + current_state%local_grid%halo_size(X_INDEX) * 2
@@ -243,6 +260,11 @@ contains
     allocate(th_diffusion(z_size))
     allocate(q_diffusion(z_size, current_state%number_q_fields))
     if (current_state%n_tracers > 0) allocate(tracer_diffusion(z_size, current_state%n_tracers))
+    if (diffuse_ca_progs .and. current_state%number_ca_fields >0) then 
+      allocate(ca_diffusion(z_size, current_state%number_ca_fields)) 
+      i_tke = current_state%tke_index  
+    end if
+    
 
     ! Set tendency diagnostic logicals based on availability
     ! Need to use 3d tendencies to compute the profiles, so they will be allocated
@@ -350,6 +372,7 @@ contains
     if (allocated(th_diffusion)) deallocate(th_diffusion)
     if (allocated(q_diffusion)) deallocate(q_diffusion)
     if (allocated(tracer_diffusion)) deallocate(tracer_diffusion)
+    if (allocated(ca_diffusion)) deallocate(ca_diffusion)
 
     if (allocated(tend_3d_th)) deallocate(tend_3d_th)
     if (allocated(tend_3d_qv)) deallocate(tend_3d_qv)
@@ -428,6 +451,7 @@ contains
     if (current_state%th%active) call perform_th_diffusion(current_state, local_y, local_x)
     if (current_state%number_q_fields .gt. 0) call perform_q_diffusion(current_state, local_y, local_x)
     if (current_state%n_radioactive_tracers .gt. 0) call perform_tracer_diffusion(current_state, local_y, local_x)
+    if (diffuse_ca_progs .and. current_state%number_ca_fields .gt. 0) call perform_ca_diffusion(current_state, local_y, local_x)
 
     if (calculate_diagnostics) call compute_component_tendencies(current_state, local_x, local_y, target_x_index, target_y_index)
 
@@ -442,9 +466,10 @@ contains
     integer, intent(in) :: local_y, local_x
 
     integer :: n
+    real(kind=DEFAULT_PRECISION), parameter :: dmult=1.0_DEFAULT_PRECISION
 
     do n=current_state%radioactive_tracer_index, current_state%radioactive_tracer_index + current_state%n_radioactive_tracers - 1 
-      call general_diffusion(current_state, current_state%ztracer(n), current_state%stracer(n), local_y, local_x, &
+      call general_diffusion(current_state, current_state%ztracer(n), current_state%stracer(n), local_y, local_x, dmult, &
         tracer_diffusion(:,n))
     end do
   end subroutine perform_tracer_diffusion  
@@ -459,11 +484,36 @@ contains
     integer, intent(in) :: local_y, local_x
 
     integer :: n
+    real(kind=DEFAULT_PRECISION), parameter :: dmult=1.0_DEFAULT_PRECISION
 
     do n=1, current_state%number_q_fields
-      call general_diffusion(current_state, current_state%zq(n), current_state%sq(n), local_y, local_x, q_diffusion(:,n))
+      call general_diffusion(current_state, current_state%zq(n), current_state%sq(n), local_y, local_x, dmult, q_diffusion(:,n))
     end do
   end subroutine perform_q_diffusion  
+
+  !> Computes the diffusion source terms for each Circle-A field
+  !! @param current_state The current model state
+  !! @param local_y Local Y index
+  !! @param local_x Local X index
+  subroutine perform_ca_diffusion(current_state, local_y, local_x)
+    type(model_state_type), target, intent(inout) :: current_state
+    integer, intent(in) :: local_y, local_x
+
+    integer :: n
+    real(kind=DEFAULT_PRECISION) :: dmult=1.0_DEFAULT_PRECISION
+    character(len=100) :: output_str
+    
+    do n=1, current_state%number_ca_fields
+      if (current_state%ca_advect(n)) then
+        dmult = 1.0
+        if (n == i_tke) dmult = tke_diff_mult
+!        write(output_str, *) n, "dmult: ", dmult
+!        call log_master_log(LOG_INFO, "Diffusing Circle A variable "//adjustl(trim(output_str)))
+ 		    call general_diffusion(current_state, current_state%zca(n), current_state%sca(n), local_y, local_x, dmult, &
+ 		                           ca_diffusion(:,n))
+      end if
+    end do
+  end subroutine perform_ca_diffusion  
 
   !> Computes the diffusion source terms for the theta field
   !! @param current_state The current model state
@@ -474,9 +524,10 @@ contains
     integer, intent(in) :: local_y, local_x
 
     integer :: k
+    real(kind=DEFAULT_PRECISION), parameter :: dmult=1.0_DEFAULT_PRECISION
     real(kind=DEFAULT_PRECISION) :: adjustment
 
-    call general_diffusion(current_state, current_state%zth, current_state%sth, local_y, local_x, th_diffusion)
+    call general_diffusion(current_state, current_state%zth, current_state%sth, local_y, local_x, dmult, th_diffusion)
 
     if (current_state%use_anelastic_equations) then
       ! This code only needs to be executed if anelastic, otherwise THREF is constant and the increment calculated here is zero
@@ -498,10 +549,12 @@ contains
   !! @param source_field The source target field to update, typically sth or sq(n)
   !! @param local_y Local Y index
   !! @param local_x Local X index
-  subroutine general_diffusion(current_state, field, source_field, local_y, local_x, diagnostics)
+  !! @param mult Multiplier for diffusivity - usd for Circle-A tke.
+  subroutine general_diffusion(current_state, field, source_field, local_y, local_x, dmult, diagnostics)
     type(model_state_type), target, intent(inout) :: current_state
     type(prognostic_field_type), intent(inout) :: field, source_field
     integer, intent(in) :: local_y, local_x
+    real(kind=DEFAULT_PRECISION), intent(in):: dmult ! multiplier for diffusivity
     real(kind=DEFAULT_PRECISION), dimension(:), intent(inout), optional :: diagnostics
 
     real(kind=DEFAULT_PRECISION) :: term
@@ -539,6 +592,8 @@ contains
              current_state%diff_coefficient%data(k, local_y, local_x)*&
              (field%data(k, local_y, local_x)-field%data(k+1, local_y, local_x))
       end if
+      
+      term = dmult * term 
       source_field%data(k, local_y, local_x)=source_field%data(k, local_y, local_x)+term
       if (present(diagnostics)) diagnostics(k)=term
     end do

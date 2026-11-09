@@ -1,0 +1,26 @@
+<io-configuration>
+	<server-configuration>
+		<thread_pool number=500/>
+	</server-configuration>
+
+#include "io/io_cfg_files/paracon_level0_scalar_fields.xml"
+#include "io/io_cfg_files/paracon_3d_fields.xml"
+#include "io/io_cfg_files/smagorinsky_3d_fields.xml"
+#include "io/io_cfg_files/smagorinsky_output.xml"
+
+#include "io/io_cfg_files/checkpoint.xml"
+
+
+<data-writing>
+  <file name="{diagnostic_file1}" write_time_frequency="{diag_write_freq}" title="All diagnostic values">
+    <include group="scalar_timeseries" time_manipulation="instantaneous" output_frequency="{mm}"/>
+  </file>
+  <file name="{diagnostic_file2}" write_time_frequency="{diag_write_freq}" title="All diagnostic values">
+    <include group="3d_fields" time_manipulation="instantaneous" output_frequency="{mm1}"/>
+    <include group="smagorinsky_3d_fields" time_manipulation="instantaneous" output_frequency="{mm1}"/>
+    <include group="smagorinsky_output" time_manipulation="instantaneous" output_frequency="{mm1}"/>
+  </file>
+</data-writing>
+
+</io-configuration>
+

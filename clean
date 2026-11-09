@@ -1,0 +1,10 @@
+rm MONC.*
+rm *.o*
+rm core*
+rm *.dot
+rm checkpoint_files/*.nc
+rm diagnostic_files/*.nc
+rm work/*.nc
+rm monc_stdout/*
+
+

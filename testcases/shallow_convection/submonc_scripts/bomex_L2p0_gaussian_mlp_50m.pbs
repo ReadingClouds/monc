@@ -1,0 +1,42 @@
+#!/bin/bash --login
+#PBS -N bomex_L2p0_gaussian_mlp
+#PBS -l select=2:ncpus=128
+#PBS -l walltime=02:00:00
+#PBS -j oe
+#PBS -q collab
+### #PBS -P <project>
+
+##############################################################
+#### THIS IS AN EXAMPLE SCRIPT TO DEMONSTRATE HOW TO      ####
+#### SUBMIT A CHECKPOINT JOB WITH THE CONTINUATION SCRIPT ####
+#### Script assumes that there are directories called     ####
+#### monc_stdout , checkpoint_files and diagnostic_files  ####
+#### If these do not exist, MONC will fail                ####
+##############################################################
+
+# Make sure any symbolic links are resolved to absolute path 
+export PBS_O_WORKDIR=$(readlink -f $PBS_O_WORKDIR)
+
+# Change to the directory that the job was submitted from 
+cd $PBS_O_WORKDIR
+
+JOBNAME=bomex_L2p0_gaussian_mlp_50m
+
+#export SUBMISSION_SCRIPT_NAME=testcases/shallow_convection/submonc_scripts/${JOBNAME}.pbs
+export SUBMISSION_SCRIPT_NAME=testcases/shallow_convection/submonc_scripts/bomex_L2p0_gaussian_mlp_50m.pbs
+export MONC_EXEC=./build/bin/monc_driver.exe
+
+#export TESTCASE=testcases/shallow_convection/paracon/${JOBNAME}.mcf
+export TESTCASE=testcases/shallow_convection/paracon/bomex_L2p0_gaussian_mlp_50m.mcf
+export STDOUT_DIR=monc_stdout
+export CP_DIR=checkpoint_files
+export RUN_NAME=bomex_dump_
+export NPES=np
+export MAX_CONTINUATION_RUNS=100
+export NPES=$(wc -l < "$PBS_NODEFILE")
+
+ulimit -c unlimited
+
+. misc/continuation.sh
+
+run_monc

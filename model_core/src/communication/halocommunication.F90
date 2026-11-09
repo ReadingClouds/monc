@@ -349,14 +349,16 @@ contains
     ! TODO - issue cancel of outstanding requests here
     if (allocated(halo_swap_state%send_requests)) deallocate(halo_swap_state%send_requests)
     if (allocated(halo_swap_state%recv_requests)) deallocate(halo_swap_state%recv_requests)
-
-    do i=1,halo_swap_state%number_distinct_neighbours
-      if (allocated(halo_swap_state%halo_swap_neighbours(i)%send_halo_buffer)) &
-           deallocate(halo_swap_state%halo_swap_neighbours(i)%send_halo_buffer)
-      if (allocated(halo_swap_state%halo_swap_neighbours(i)%recv_halo_buffer)) &
-           deallocate(halo_swap_state%halo_swap_neighbours(i)%recv_halo_buffer)
-    end do
-    if (allocated(halo_swap_state%halo_swap_neighbours)) deallocate(halo_swap_state%halo_swap_neighbours)
+    
+    if (allocated(halo_swap_state%halo_swap_neighbours)) then
+      do i=1,halo_swap_state%number_distinct_neighbours
+        if (allocated(halo_swap_state%halo_swap_neighbours(i)%send_halo_buffer)) &
+             deallocate(halo_swap_state%halo_swap_neighbours(i)%send_halo_buffer)
+        if (allocated(halo_swap_state%halo_swap_neighbours(i)%recv_halo_buffer)) &
+             deallocate(halo_swap_state%halo_swap_neighbours(i)%recv_halo_buffer)
+      end do
+      deallocate(halo_swap_state%halo_swap_neighbours)
+    end if
     halo_swap_state%initialised=.false.
   end subroutine finalise_halo_communication
 
@@ -767,31 +769,39 @@ contains
     
     !! AH - test code to see if this corrects the allocation error on restart with gcc 7
     !! do i=1,number_distinct_neighbours
-    !!   if (allocated(halo_swap_neighbours(i)%send_halo_buffer)) &
-    !!       deallocate(halo_swap_neighbours(i)%send_halo_buffer)
-    !!   if (allocated(halo_swap_neighbours(i)%recv_halo_buffer)) &
+    !!    if (allocated(halo_swap_neighbours(i)%send_halo_buffer)) &
+    !!        deallocate(halo_swap_neighbours(i)%send_halo_buffer)
+    !!    if (allocated(halo_swap_neighbours(i)%recv_halo_buffer)) &
     !!        deallocate(halo_swap_neighbours(i)%recv_halo_buffer)
-    !!   if (allocated(halo_swap_neighbours(i)%send_corner_buffer)) &
-    !!       deallocate(halo_swap_neighbours(i)%send_corner_buffer) 
-    !!   if (allocated(halo_swap_neighbours(i)%recv_corner_buffer)) &
-    !!       deallocate(halo_swap_neighbours(i)%recv_corner_buffer)   
+    !!    if (allocated(halo_swap_neighbours(i)%send_corner_buffer)) &
+    !!        deallocate(halo_swap_neighbours(i)%send_corner_buffer) 
+    !!    if (allocated(halo_swap_neighbours(i)%recv_corner_buffer)) &
+    !!        deallocate(halo_swap_neighbours(i)%recv_corner_buffer)   
     !! end do
     !!
 
     do i=1,number_distinct_neighbours
       if (halo_swap_neighbours(i)%halo_pages .gt. 0) then
          !depending on the direction of the swapping, the send and recv buffer size would change
+        if (allocated(halo_swap_neighbours(i)%send_halo_buffer)) &
+            deallocate(halo_swap_neighbours(i)%send_halo_buffer)
         allocate(halo_swap_neighbours(i)%send_halo_buffer(local_grid%size(Z_INDEX), &
              merge(local_grid%size(Y_INDEX), local_grid%size(X_INDEX), &
              halo_swap_neighbours(i)%dimension==X_INDEX), halo_swap_neighbours(i)%halo_pages))
+        if (allocated(halo_swap_neighbours(i)%recv_halo_buffer)) &
+            deallocate(halo_swap_neighbours(i)%recv_halo_buffer)
         allocate(halo_swap_neighbours(i)%recv_halo_buffer(local_grid%size(Z_INDEX), &
              merge(local_grid%size(Y_INDEX), local_grid%size(X_INDEX), &
              halo_swap_neighbours(i)%dimension==X_INDEX), halo_swap_neighbours(i)%halo_pages))
       end if
       if (halo_swap_neighbours(i)%halo_corners .gt. 0) then
          ! is 4 because of the 4 cells to swap since the halo_depth is 2(2 in x and 2 in y)??
+        if (allocated(halo_swap_neighbours(i)%send_corner_buffer)) &
+            deallocate(halo_swap_neighbours(i)%send_corner_buffer) 
         allocate(halo_swap_neighbours(i)%send_corner_buffer(local_grid%size(Z_INDEX), 4, &
              halo_swap_neighbours(i)%halo_corners))
+        if (allocated(halo_swap_neighbours(i)%recv_corner_buffer)) &
+            deallocate(halo_swap_neighbours(i)%recv_corner_buffer)   
         allocate(halo_swap_neighbours(i)%recv_corner_buffer(local_grid%size(Z_INDEX), 4, &
              halo_swap_neighbours(i)%halo_corners))
       end if

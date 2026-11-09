@@ -24,7 +24,7 @@ module diagnostic_federator_mod
   use data_utils_mod, only : get_scalar_integer_from_monc, get_scalar_real_from_monc, is_field_present, &
        get_action_attribute_logical, get_action_attribute_integer, get_action_attribute_string, &
        get_array_double_from_monc, get_array_integer_from_monc, get_scalar_logical_from_monc
-  use logging_mod, only : LOG_WARN, LOG_ERROR, log_log
+  use logging_mod, only : LOG_INFO, LOG_WARN, LOG_DEBUG, LOG_ERROR, log_log, log_is_master
   use operator_mod, only : perform_activity, initialise_operators, finalise_operators, get_operator_required_fields, &
        get_operator_perform_procedure, get_operator_auto_size
   use optionsdatabase_mod, only : options_get_logical
@@ -38,7 +38,8 @@ module diagnostic_federator_mod
 #endif
 
   !< The type of activity
-  integer, parameter :: OPERATOR_TYPE=1, REDUCTION_TYPE=2, BROADCAST_TYPE=3, ALLREDUCTION_TYPE=4, PERFORM_CLEAN_EVERY=100
+  integer, parameter :: OPERATOR_TYPE=1, REDUCTION_TYPE=2, BROADCAST_TYPE=3, ALLREDUCTION_TYPE=4, PERFORM_CLEAN_EVERY=1&
+                        , PERFORM_PRINT_EVERY=100
 
   !< A wrapper type containing all the diagnostics for MONC source processes at a specific timestep
   type all_diagnostics_at_timestep_type
@@ -79,9 +80,12 @@ module diagnostic_federator_mod
   type(hashset_type), volatile :: all_outstanding_fields, available_fields
   type(diagnostics_type), volatile, dimension(:), allocatable :: diagnostic_definitions
   integer, volatile :: timestep_entries_rwlock, all_diagnostics_per_timestep_rwlock, clean_progress_mutex, &
-       previous_clean_point, previous_viewed_timestep, current_point
+       previous_clean_point, previous_viewed_timestep, current_point, &
+       previous_print_point, previous_pviewed_timestep, current_print_point
 
   logical :: time_basis
+  
+  character*(100) dummy_str
 
  public initialise_diagnostic_federator, finalise_diagnostic_federator, check_diagnostic_federator_for_completion, &
       pass_fields_to_diagnostics_federator, determine_diagnostics_fields_available
@@ -105,8 +109,11 @@ contains
     call init_global_callback_inter_io(io_configuration)
     call define_diagnostics(io_configuration, initialise_diagnostic_federator)
     previous_clean_point=0
+    previous_print_point=0
     previous_viewed_timestep=0
+    previous_pviewed_timestep=0
     current_point=0
+    current_print_point=0
   end function initialise_diagnostic_federator
   
   !> Checks whether the diagnostics federator has completed or not, this is really checking all the underlying operations
@@ -219,6 +226,7 @@ contains
         terminated=get_scalar_logical_from_monc(io_configuration, source, data_id, data_dump, "terminated")
       end if
       if (.not. terminated) call clean_diagnostic_states(timestep)
+      ! if (.not. terminated) call print_diagnostic_states(timestep)
       call issue_communication_calls(io_configuration, timestep_entry, diagnostics_by_timestep, source, data_id, data_dump)      
       call check_diagnostics_entries_against_data(io_configuration, source, data_id, data_dump, timestep_entry)
       call check_all_activities_against_completed_fields(io_configuration, timestep_entry, diagnostics_by_timestep)
@@ -654,12 +662,29 @@ contains
     character(len=STRING_LENGTH) :: entry_key
 
     have_lock=forthread_mutex_trylock(clean_progress_mutex)
+    if (log_is_master()) then
+      call log_log(LOG_DEBUG, "clean_diagnostic_states called for have_lock = "//&
+                   trim(conv_to_string(have_lock))//" "//&
+                   trim(conv_to_string(current_timestep)))
+    end if
     if (have_lock == 0) then
+      if (log_is_master()) then
+        call log_log(LOG_DEBUG, "clean_diagnostic_states have_lock == 0 for  "//&
+                     trim(conv_to_string(have_lock))//" "//&
+                     trim(conv_to_string(previous_viewed_timestep))//" "//&
+                     trim(conv_to_string(current_timestep))//" "//&
+                     trim(conv_to_string(current_point)))
+      end if
       if (previous_viewed_timestep .ne. current_timestep) then
         current_point=current_point+1
         previous_viewed_timestep=current_timestep
       end if
       if (previous_clean_point + PERFORM_CLEAN_EVERY .lt. current_point) then
+        if (log_is_master()) then
+          call log_log(LOG_DEBUG, "Cleaning diagnostic i/o for "//&
+                       trim(conv_to_string(current_timestep))//" "//&
+                       trim(conv_to_string(current_point)))
+        end if
         previous_clean_point=current_point
         call check_thread_status(forthread_rwlock_rdlock(all_diagnostics_per_timestep_rwlock))
         all_diagnostics_iterator=c_get_iterator(all_diagnostics_at_timestep)
@@ -676,14 +701,28 @@ contains
               outstanding_diags=specific_monc_timestep_entry%number_diags_outstanding
               outstanding_datas=specific_monc_timestep_entry%number_datas_outstanding
               call check_thread_status(forthread_mutex_unlock(specific_monc_timestep_entry%deletion_metric_mutex))
-              if (outstanding_diags .gt. 0 .or. outstanding_datas .gt. 0) then
-                all_completed=.false.
+              ! if (outstanding_diags .gt. 0 .or. outstanding_datas .gt. 0) then
+              if (outstanding_diags == 0 .and. outstanding_datas == 0) then
+                entry_key=all_diag_mapentry%key//"#"//conv_to_string(specific_monc_timestep_entry%timestep)// &
+                  "#"//conv_to_string(specific_monc_timestep_entry%source)
+                call c_add_string(entries_to_remove, entry_key)
+                if (log_is_master()) then
+                  call log_log(LOG_DEBUG, "Marked for removal: "&
+                               //trim(all_diag_mapentry%key)//" "&
+                               //trim(conv_to_string(specific_monc_timestep_entry%timestep))//" "&
+                               //trim(conv_to_string(specific_monc_timestep_entry%source)))
+                end if
+                !all_completed=.false.
                 exit
               end if
             end do
-            if (all_completed) then
-              call c_add_string(entries_to_remove, all_diag_mapentry%key)
-            end if
+            !if (all_completed) then
+            !  if (log_is_master()) then
+            !    call log_log(LOG_DEBUG, "Marked for removal: "&
+            !                 //trim(all_diag_mapentry%key))
+            !  end if
+            !  call c_add_string(entries_to_remove, all_diag_mapentry%key)
+            !end if
           end if
           call check_thread_status(forthread_mutex_unlock(specific_all_diagnostics_for_ts%completed_num_mutex))
         end do
@@ -696,6 +735,12 @@ contains
             entry_key=c_next_string(iterator)
             call deallocate_diagnostics_at_timestep(entry_key)
             call c_remove(all_diagnostics_at_timestep, entry_key)
+            if (log_is_master()) then
+              call log_log(LOG_DEBUG, "Removed all_diagnostics_at_timestep "//trim(entry_key)//" "&
+                           //trim(conv_to_string(current_point))//" "&
+                           //trim(conv_to_string(current_timestep)))
+            end if
+
           end do
           call check_thread_status(forthread_rwlock_unlock(all_diagnostics_per_timestep_rwlock))
           call c_free(entries_to_remove)
@@ -704,6 +749,82 @@ contains
       call check_thread_status(forthread_mutex_unlock(clean_progress_mutex))
     end if
   end subroutine clean_diagnostic_states 
+
+
+  !> Print the diagnostic states if required (based on the timestep period)
+  !! @param current_timestep The current timestep which is checked against the previous run timestep
+  subroutine print_diagnostic_states(current_timestep)
+    integer, intent(in) :: current_timestep
+
+    integer :: have_lock, outstanding_diags, outstanding_datas
+!    type(list_type) :: entries_to_remove
+    type(iterator_type) :: iterator, all_diagnostics_iterator
+    type(mapentry_type) :: all_diag_mapentry
+    type(all_diagnostics_at_timestep_type), pointer :: specific_all_diagnostics_for_ts
+    type(diagnostics_at_timestep_type), pointer :: specific_monc_timestep_entry
+    logical :: all_completed
+    character(len=STRING_LENGTH) :: entry_key
+
+    have_lock=forthread_mutex_trylock(clean_progress_mutex)
+    if (have_lock == 0) then
+      if (previous_pviewed_timestep .ne. current_timestep) then
+        current_print_point=current_print_point+1
+        previous_pviewed_timestep=current_timestep
+      end if
+      if (previous_print_point + PERFORM_PRINT_EVERY .lt. current_print_point) then
+        if (log_is_master()) then
+          call log_log(LOG_INFO, "Pending diagnostic i/o for "//&
+                       trim(conv_to_string(current_print_point)))
+        end if
+        previous_print_point=current_print_point
+        call check_thread_status(forthread_rwlock_rdlock(all_diagnostics_per_timestep_rwlock))
+        all_diagnostics_iterator=c_get_iterator(all_diagnostics_at_timestep)
+        do while(c_has_next(all_diagnostics_iterator))
+          all_diag_mapentry=c_next_mapentry(all_diagnostics_iterator)
+          specific_all_diagnostics_for_ts=>retrieve_diagnostics(all_diag_mapentry)
+          call check_thread_status(forthread_mutex_lock(specific_all_diagnostics_for_ts%completed_num_mutex))
+          
+          if (log_is_master()) then
+            call log_log(LOG_INFO, "Pending diagnostic i/o for "//&
+                         trim(conv_to_string(current_print_point))//" "//&
+                         trim(conv_to_string(specific_all_diagnostics_for_ts%completed_num)))
+                         
+          end if
+
+          if (specific_all_diagnostics_for_ts%completed_num == 0) then
+            iterator=c_get_iterator(specific_all_diagnostics_for_ts%diagnostic_entries)
+            all_completed=.true.
+            do while (c_has_next(iterator))
+              specific_monc_timestep_entry=>retrieve_next_specific_monc_timestep_entry(iterator)
+              if (log_is_master()) then
+                call log_log(LOG_INFO, "specific_monc_timestep_entry "//&
+                             trim(conv_to_string(specific_monc_timestep_entry%timestep))//" "//&
+                             trim(conv_to_string(specific_monc_timestep_entry%number_diags_outstanding))//" "//&
+                             trim(conv_to_string(specific_monc_timestep_entry%number_datas_outstanding)))
+              end if
+              call check_thread_status(forthread_mutex_lock(specific_monc_timestep_entry%deletion_metric_mutex))
+              outstanding_diags=specific_monc_timestep_entry%number_diags_outstanding
+              outstanding_datas=specific_monc_timestep_entry%number_datas_outstanding
+              call check_thread_status(forthread_mutex_unlock(specific_monc_timestep_entry%deletion_metric_mutex))
+              if (outstanding_diags .gt. 0 .or. outstanding_datas .gt. 0) then
+                all_completed=.false.
+                exit
+              end if
+            end do
+            if (all_completed) then
+              if (log_is_master()) then
+                call log_log(LOG_INFO, "Marked as completed: "//&
+                             trim(all_diag_mapentry%key))
+              end if
+            end if
+          end if
+          call check_thread_status(forthread_mutex_unlock(specific_all_diagnostics_for_ts%completed_num_mutex))
+        end do
+        call check_thread_status(forthread_rwlock_unlock(all_diagnostics_per_timestep_rwlock))
+      end if
+      call check_thread_status(forthread_mutex_unlock(clean_progress_mutex))
+    end if
+  end subroutine print_diagnostic_states 
 
   !> Deallocates all the diagnostics at a specific timestep, this removes all the individual MONC timestep entries and deallocates
   !! internal all diagnostic data, but keeps the all diagnostic entry in the list (which is removed by the caller)
@@ -831,6 +952,10 @@ contains
         all_diags_by_timestep=>find_or_add_diagnostics_by_timestep(timestep)
         call check_thread_status(forthread_rwlock_wrlock(all_diagnostics_per_timestep_rwlock))
         call c_add_generic(all_diags_by_timestep%diagnostic_entries, generic, .false.)
+        if (log_is_master()) then
+          call log_log(LOG_DEBUG, "Added all_diags_by_timestep to all_diags_by_timestep%diagnostic_entries "//&
+                       trim(conv_to_string(timestep)))
+        end if
         call check_thread_status(forthread_rwlock_unlock(all_diagnostics_per_timestep_rwlock))
       end if
       call check_thread_status(forthread_rwlock_unlock(timestep_entries_rwlock))
@@ -873,6 +998,11 @@ contains
 
           if (expect_data) then
             create_timestep_entry%number_datas_outstanding=create_timestep_entry%number_datas_outstanding+1
+            if (log_is_master()) then
+              call log_log(LOG_DEBUG, "Created timestep entry "//&
+                     trim(conv_to_string(create_timestep_entry%number_datas_outstanding)))
+            end if
+
           end if
         end if
       else
@@ -881,8 +1011,14 @@ contains
       end if
     end do
     iterator=c_get_iterator(all_outstanding_fields)
-    do while (c_has_next(iterator))      
-      call c_add_string(create_timestep_entry%outstanding_fields, c_next_string(iterator))
+    do while (c_has_next(iterator))
+      dummy_str = c_next_string(iterator)      
+      call c_add_string(create_timestep_entry%outstanding_fields, trim(dummy_str))
+      if (log_is_master()) then
+        call log_log(LOG_DEBUG, "Added "//trim(dummy_str)//&
+                     " to create_timestep_entry%outstanding_fields timestep="//&
+                     trim(conv_to_string(timestep)))
+      end if
     end do
     call check_thread_status(forthread_mutex_init(create_timestep_entry%activity_completion_mutex, -1))
     call check_thread_status(forthread_mutex_init(create_timestep_entry%deletion_metric_mutex, -1))
@@ -973,7 +1109,15 @@ contains
         call check_thread_status(forthread_mutex_init(find_or_add_diagnostics_by_timestep%completed_num_mutex, -1))
         find_or_add_diagnostics_by_timestep%completed_num=0
         generic=>find_or_add_diagnostics_by_timestep
+
         call c_put_generic(all_diagnostics_at_timestep, conv_to_string(timestep), generic, .false.)
+
+        if (log_is_master()) then
+          call log_log(LOG_DEBUG, "Added to all_diagnostics_at_timestep "//&
+                       trim(conv_to_string(timestep))//" Completed="//&
+                       trim(conv_to_string(find_or_add_diagnostics_by_timestep%completed_num)))
+        end if
+      
       end if
       call check_thread_status(forthread_rwlock_unlock(all_diagnostics_per_timestep_rwlock))
     end if

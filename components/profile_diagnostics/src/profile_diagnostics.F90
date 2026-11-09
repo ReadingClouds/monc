@@ -29,7 +29,7 @@ module profile_diagnostics_mod
        theta_tot, w_wind_tot, rh_tot, wtheta_ad_tot,             & 
        wtheta_cn_tot, uw_tot, vw_tot, uv_tot, th2_tot,           &
        thref, prefn, rho, rhon, thinit, uinit, vinit,            &
-       ! mositure means
+       ! moisture means
        q_temp, qv_tot, ql_tot, qr_tot, qi_tot, qs_tot, qg_tot,   &
        ! number concentrations 
        nl_tot, nr_tot, ni_tot, ns_tot, ng_tot,   &

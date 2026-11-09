@@ -1,6 +1,7 @@
 use buoyancy_mod, only : buoyancy_get_descriptor
 use cfltest_mod, only : cfltest_get_descriptor
 use checkpointer_mod, only : checkpointer_get_descriptor
+use circle_a_mod, only : circle_a_get_descriptor
 use clearsourceterms_mod, only : clearsourceterms_get_descriptor
 use coriolis_mod, only : coriolis_get_descriptor
 use damping_mod, only : damping_get_descriptor
@@ -35,6 +36,7 @@ use scalar_diagnostics_mod, only : scalar_diagnostics_get_descriptor
 use set_consistent_lowbc_mod, only : set_consistent_lowbc_get_descriptor
 use setfluxlook_mod, only : setfluxlook_get_descriptor
 use simplecloud_mod, only : simplecloud_get_descriptor
+use gaussiancloud_mod, only : gaussiancloud_get_descriptor
 use simplesetup_mod, only : simplesetup_get_descriptor
 use smagorinsky_mod, only : smagorinsky_get_descriptor
 use stepfields_mod, only : stepfields_get_descriptor

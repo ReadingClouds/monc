@@ -88,7 +88,7 @@
     <member name="resolved_turbulent_transport"/>
     <member name="resolved_buoyant_production"/>
     <member name="tke_tendency"/>
-          <!-- Subgrid tke diagnostics -->
+   <!-- Subgrid tke diagnostics -->
     <member name="subgrid_turbulent_transport"/>
     <member name="subgrid_buoyant_production"/>
     <member name="subgrid_shear_stress"/>

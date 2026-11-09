@@ -90,6 +90,7 @@ module state_mod
          sth_lw, sth_sw
     type(prognostic_field_type), dimension(:), allocatable :: q, zq, sq, disq
     type(prognostic_field_type), dimension(:), allocatable :: tracer, ztracer, stracer
+    type(prognostic_field_type), dimension(:), allocatable :: ca, zca, sca
     ! longwave and shortwave downwelling flux at the surface
     real(kind=DEFAULT_PRECISION), dimension(:,:), allocatable :: sw_down_surf, lw_down_surf
     type(halo_communication_type) :: viscosity_halo_swap_state, diffusion_halo_swap_state
@@ -125,12 +126,19 @@ module state_mod
          psrce_x_hs_send_request, psrce_y_hs_send_request, psrce_x_hs_recv_request, psrce_y_hs_recv_request
     integer :: n_tracers=0, n_radioactive_tracers=0
     integer :: traj_tracer_index=0, radioactive_tracer_index=0
+    integer :: number_ca_fields=0
+    integer :: tke_index=0, u_u_index=0, u_v_index=0, u_w_index=0, v_v_index=0, v_w_index=0, w_w_index=0, &
+               thl_thl_index=0, qt_qt_index=0, thl_qt_index=0, u_thl_index=0, v_thl_index=0, w_thl_index=0, &
+               u_qt_index=0, v_qt_index=0, w_qt_index=0
+               
+    logical, dimension(:), allocatable::ca_advect
+   
     integer, dimension(:), allocatable:: tracer_surf_bc_opt
     logical :: first_timestep_column, last_timestep_column, halo_column, first_nonhalo_timestep_column, &
          passive_q=.false., passive_th=.false., &
          use_time_varying_surface_values, use_anelastic_equations, & ! use_anelastic_equations or use Boussinesq
          saturated_surface, update_dtm=.false., calculate_th_and_q_init, origional_vertical_grid_setup=.true., &
-         io_server_enabled, reinit_tracer=.false., time_basis=.false.
+         io_server_enabled, reinit_tracer=.false., time_basis=.false., mixing_length_param=.false.
     logical, allocatable :: l_forceq(:)
     double precision :: model_start_wtime
 

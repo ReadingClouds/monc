@@ -38,42 +38,42 @@
 
 <data-handling namespace="subgrid_profile_fields">
 
-  <diagnostic field="uwsg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="uwsg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="uwsg_mean" equation="uwsg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="uwsg_mean_g" field="uwsg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="vwsg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="vwsg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="vwsg_mean" equation="vwsg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="vwsg_mean_g" field="vwsg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="uusg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="uusg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="uusg_mean" equation="uusg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="uusg_mean_g" field="uusg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="vvsg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="vvsg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="vvsg_mean" equation="vvsg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="vvsg_mean_g" field="vvsg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wwsg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="wwsg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="wwsg_mean" equation="wwsg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="wwsg_mean_g" field="wwsg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="tkesg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="tkesg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="tkesg_mean" equation="tkesg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="tkesg_mean_g" field="tkesg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wkesg_mean"  type="array" data_type="double" size="zn" units="m^2/s^2">
+  <diagnostic field="wkesg_mean"  type="array" data_type="double" size="z" units="m^2/s^2">
         <operator name="arithmetic" result="wkesg_mean" equation="wkesg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="wkesg_mean_g" field="wkesg_total_local" root="auto"/>
   </diagnostic>
 
- <diagnostic field="wtsg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+ <diagnostic field="wtsg_mean"  type="array" data_type="double" size="z" units="Km/s">
         <operator name="arithmetic" result="wtsg_mean" equation="wtsg_mean_g/({x_size}*{y_size})"/>
         <communication name="reduction" operator="sum" result="wtsg_mean_g" field="wtsg_total_local" root="auto"/>
   </diagnostic>
@@ -88,52 +88,52 @@
         <communication name="reduction" operator="sum" result="theta_dis_mean_g" field="theta_dis_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="viscosity_coef_mean"  type="array" data_type="double" size="zn" units="K^2">
+  <diagnostic field="viscosity_coef_mean"  type="array" data_type="double" size="z" units="K^2">
     <operator name="arithmetic" result="viscosity_coef_mean" equation="viscosity_coef_mean_g/({x_size}*{y_size})"/>
     <communication name="reduction" operator="sum" result="viscosity_coef_mean_g" field="viscosity_coef_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="diffusion_coef_mean"  type="array" data_type="double" size="zn" units="K^2">
+  <diagnostic field="diffusion_coef_mean"  type="array" data_type="double" size="z" units="K^2">
      <operator name="arithmetic" result="diffusion_coef_mean" equation="diffusion_coef_mean_g/({x_size}*{y_size})"/>
     <communication name="reduction" operator="sum" result="diffusion_coef_mean_g" field="diffusion_coef_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="richardson_number_mean"  type="array" data_type="double" size="zn" units="K^2">
+  <diagnostic field="richardson_number_mean"  type="array" data_type="double" size="z" units="K^2">
      <operator name="arithmetic" result="richardson_number_mean" equation="richardson_number_mean_g/({x_size}*{y_size})"/>
     <communication name="reduction" operator="sum" result="richardson_number_mean_g" field="richardson_number_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="richardson_squared_mean"  type="array" data_type="double" size="zn" units="K^2">
+  <diagnostic field="richardson_squared_mean"  type="array" data_type="double" size="z" units="K^2">
      <operator name="arithmetic" result="richardson_squared_mean" equation="richardson_squared_mean_g/({x_size}*{y_size})"/>
     <communication name="reduction" operator="sum" result="richardson_squared_mean_g" field="richardson_squared_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wqv_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wqv_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wqv_sg_mean" equation="wqv_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wqv_sg_mean_g" field="wqv_sg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wql_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wql_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wql_sg_mean" equation="wql_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wql_sg_mean_g" field="wql_sg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wqr_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wqr_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wqr_sg_mean" equation="wqr_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wqr_sg_mean_g" field="wqr_sg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wqi_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wqi_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wqi_sg_mean" equation="wqi_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wqi_sg_mean_g" field="wqi_sg_total_local" root="auto"/>
   </diagnostic>
 
-  <diagnostic field="wqs_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wqs_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wqs_sg_mean" equation="wqs_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wqs_sg_mean_g" field="wqs_sg_total_local" root="auto"/>
   </diagnostic>
   
-  <diagnostic field="wqg_sg_mean"  type="array" data_type="double" size="zn" units="Km/s">
+  <diagnostic field="wqg_sg_mean"  type="array" data_type="double" size="z" units="Km/s">
 	<operator name="arithmetic" result="wqg_sg_mean" equation="wqg_sg_mean_g/({x_size}*{y_size})"/>
 	<communication name="reduction" operator="sum" result="wqg_sg_mean_g" field="wqg_sg_total_local" root="auto"/>
   </diagnostic>

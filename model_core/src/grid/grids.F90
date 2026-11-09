@@ -135,6 +135,7 @@ module grids_mod
           qsatfac,&
           rneutml,&
           rneutml_sq,&
+!          r_Cs_env_ml, r_Cs_IC_ml, r_Cth_env_ml, r_Cth_IC_ml,&
           buoy_co, &
           theta_rand, &!< profile of amplitude of theta perturbations
           theta_force, & !<profile of forcing term for theta

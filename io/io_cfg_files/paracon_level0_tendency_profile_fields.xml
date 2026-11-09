@@ -6,7 +6,7 @@
    2.  Terms are separated by MONC source component with line breaks.
 
    3.  DO NOT expect all of these field to be written.  They WILL NOT.  In particular, advection and 
-       microphysics routine choices will switch on/off specific componenets.  Also, it may be the case
+       microphysics routine choices will switch on/off specific components.  Also, it may be the case
        that not all water species are specified in a given configuration.
 
    4.  Obtaining 'mphys' tendencies from CASIM requires:

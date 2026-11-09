@@ -4,14 +4,16 @@ module configuration_parser_mod
   use datadefn_mod, only : DEFAULT_PRECISION, STRING_LENGTH
   use sax_xml_parser_mod, only : xml_parse
   use conversions_mod, only : conv_to_string, conv_to_integer, conv_to_real, conv_to_uppercase
-  use collections_mod, only : hashmap_type, hashset_type, map_type, list_type, mapentry_type, c_get_generic, c_get_integer, &
-       c_free, c_size, c_put_integer, c_put_string, c_add_generic, c_add_string
-  use logging_mod, only : LOG_WARN, LOG_INFO, LOG_ERROR, log_log, log_master_log, log_master_newline
+  use collections_mod, only : hashmap_type, hashset_type, map_type, list_type, mapentry_type, iterator_type, &
+       c_get_generic, c_get_integer, &
+       c_free, c_size, c_put_integer, c_put_string, c_add_generic, c_add_string, c_get_iterator, c_has_next, c_next_string
+  use logging_mod, only : LOG_WARN, LOG_DEBUG, LOG_ERROR, log_log, log_master_log, log_master_newline
   use optionsdatabase_mod, only : options_has_key, options_get_logical, options_get_integer, options_get_string, options_get_real, &
                                   options_get_array_size
   use io_server_client_mod, only : ARRAY_FIELD_TYPE, SCALAR_FIELD_TYPE, MAP_FIELD_TYPE, INTEGER_DATA_TYPE, BOOLEAN_DATA_TYPE, &
        STRING_DATA_TYPE, FLOAT_DATA_TYPE, DOUBLE_DATA_TYPE, definition_description_type, field_description_type
   use q_indices_mod, only : get_number_active_q_indices
+  use ca_indices_mod, only : get_number_active_ca_indices
   use netcdf, only : NF90_DOUBLE, NF90_REAL
   implicit none
 
@@ -26,6 +28,8 @@ module configuration_parser_mod
   integer, parameter :: MONC_SIZE_STRIDE=100, DATA_SIZE_STRIDE=10
 
   integer, parameter :: TIME_AVERAGED_TYPE=1, INSTANTANEOUS_TYPE=2, NONE_TYPE=3, GROUP_TYPE=1, FIELD_TYPE=2, IO_STATE_TYPE=3
+  
+  character(len=100) :: output_str
 
   interface get_data_value_by_field_name
      module procedure get_data_value_from_hashmap_by_field_name, get_data_value_from_map_by_field_name
@@ -117,6 +121,7 @@ module configuration_parser_mod
      real(kind=DEFAULT_PRECISION), dimension(:), allocatable :: z_field
      type(list_type) :: q_field_names
      type(list_type) :: tracer_names
+     type(list_type) :: ca_field_names
      logical :: general_info_set
      character, dimension(:), allocatable :: text_configuration
   end type io_configuration_type
@@ -268,12 +273,13 @@ contains
     parsed_configuration%general_info_set=.false.    
     call c_free(data_field_names)
     allocate(parsed_configuration%text_configuration(size(raw_configuration)), source=raw_configuration)
+    
   end subroutine configuration_parse
 
   subroutine add_in_dimensions(provided_options_database)
     type(hashmap_type), intent(inout) :: provided_options_database
 
-    integer :: dim_size, n_tracers=0
+    integer :: dim_size, n_tracers=0, n_cafields=0
 
     call c_put_integer(building_config%dimension_sizing, "x", options_get_integer(provided_options_database, "x_size"))
     call c_put_integer(building_config%dimension_sizing, "y", options_get_integer(provided_options_database, "y_size"))
@@ -296,6 +302,12 @@ contains
       end if
     end if  ! tracers_enabled
     call c_put_integer(building_config%dimension_sizing, "tfields", n_tracers)
+
+    if (options_get_logical(options_database, "circle_a_enabled")) then
+      n_cafields = options_get_integer(provided_options_database, "number_ca_fields")
+    end if ! circle_a_enabled
+    call c_put_integer(building_config%dimension_sizing, "cafields", n_cafields)
+    call c_put_integer(building_config%dimension_sizing, "active_ca_indicies", get_number_active_ca_indices())
 
     !> Since the model appears to write each of the items in dimension_sizing as dimensions in every
     !  netcdf file, only let these exist when the corresponding code is enabled.
@@ -440,6 +452,7 @@ contains
     character(len=STRING_LENGTH) :: namespace
 
     name_index=get_field_index_from_name(attribute_names, "name")
+
     frequency_index=get_field_index_from_name(attribute_names, "frequency")
     namespace_index=get_field_index_from_name(attribute_names, "namespace")
     send_on_termination_index=get_field_index_from_name(attribute_names, "send_on_terminate")
@@ -447,6 +460,8 @@ contains
       if (current_building_definition .gt. size(building_config%data_definitions)) call extend_data_definition_array()
       building_config%data_definitions(current_building_definition)%name=&
            retrieve_string_value(attribute_values(name_index), STRING_DATA_TYPE)
+      call log_master_log(LOG_DEBUG, "handle_new_data_definition name '"&
+          //trim(retrieve_string_value(attribute_values(name_index), STRING_DATA_TYPE))//"'")
       building_config%data_definitions(current_building_definition)%frequency=&
            conv_to_integer(retrieve_string_value(attribute_values(frequency_index), INTEGER_DATA_TYPE))
       if (namespace_index /= 0) then
@@ -506,6 +521,8 @@ contains
     integer :: i
 
     allocate(misc_member)
+    call log_master_log(LOG_DEBUG, "handle_new_data_definition name '"&
+          //trim(element_name)//"'")
 
     misc_member%type=retrieve_string_value(element_name, STRING_DATA_TYPE)
     misc_member%namespace=data_handling_namespace
@@ -522,18 +539,31 @@ contains
     character(len=*), dimension(:), intent(in) :: attribute_names, attribute_values
 
     integer :: field_index
+!    type(iterator_type) :: iterator
+!    character(len=STRING_LENGTH) :: field_name
 
     if (element_name == "member") then
       field_index=get_field_index_from_name(attribute_names, "name")
       if (field_index .gt. 0) then
         call c_add_string(building_config%groups(current_building_group)%members, &
              retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE))
-      else
+        call log_master_log(LOG_DEBUG, "add_diagnostic_field_to_group '"&
+          //trim(building_config%groups(current_building_group)%name)//"' '"&
+          //trim(retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE))//"'")
+     else
         call log_log(LOG_ERROR, "A diagnostics group member requires a name")
       end if
     else      
         call log_log(LOG_ERROR, "Unrecognised diagnostics group participant, name is '"//trim(element_name)//"'")
     end if
+    
+!    call log_master_log(LOG_DEBUG, "group members:")
+!    iterator=c_get_iterator(building_config%groups(current_building_group)%members)
+!    do while (c_has_next(iterator))
+!      field_name=c_next_string(iterator)
+!      call log_master_log(LOG_DEBUG, " '"//trim(field_name)//"'.")
+!    end do
+
   end subroutine add_diagnostic_field_to_group  
 
   subroutine define_group(attribute_names, attribute_values)      
@@ -542,10 +572,11 @@ contains
     integer :: field_index
 
     if (current_building_group .gt. size(building_config%groups)) call extend_groups_array()
-
+    
     field_index=get_field_index_from_name(attribute_names, "name")
     if (field_index .gt. 0) then
       building_config%groups(current_building_group)%name=retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE)
+      call log_master_log(LOG_DEBUG, "define_group '"//trim(building_config%groups(current_building_group)%name)//"'")
       field_index=get_field_index_from_name(attribute_names, "namespace")
       if (field_index .gt. 0) then
         building_config%groups(current_building_group)%namespace=&
@@ -553,6 +584,7 @@ contains
       else
         building_config%groups(current_building_group)%namespace=""
       end if
+      call log_master_log(LOG_DEBUG, "define_group namespace '"//trim(building_config%groups(current_building_group)%namespace)//"'")
     else
       call log_log(LOG_ERROR, "A diagnostics group requires a name")
     end if
@@ -573,6 +605,8 @@ contains
     if (field_index .gt. 0) then
       building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_name=&
            retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE)
+      call log_master_log(LOG_DEBUG, "add_include_to_file_writer group "//trim(&
+        building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_name))
       building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_type=GROUP_TYPE
       call add_include_group_or_field_to_file_writer(attribute_names, attribute_values, number_of_contents)
     else
@@ -580,6 +614,8 @@ contains
       if (field_index .gt. 0) then
         building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_name=&
              retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE)
+        call log_master_log(LOG_DEBUG, "add_include_to_file_writer field "//trim(&
+          building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_name))
         building_config%file_writers(current_building_file_writer)%contents(number_of_contents)%facet_type=FIELD_TYPE
         call add_include_group_or_field_to_file_writer(attribute_names, attribute_values, number_of_contents)
       else
@@ -654,7 +690,9 @@ contains
     else
       call log_log(LOG_ERROR, "File writer requires a file name")
     end if
-
+    call log_master_log(LOG_DEBUG, "define_file_writer file_name "//trim(&
+      building_config%file_writers(current_building_file_writer)%file_name))
+      
     field_index=get_field_index_from_name(attribute_names, "write_time_frequency")
     if (field_index .gt. 0) then    
       building_config%file_writers(current_building_file_writer)%write_time_frequency=&
@@ -690,6 +728,8 @@ contains
     else
       building_config%file_writers(current_building_file_writer)%title=DEFAULT_FILE_TITLE
     end if    
+    call log_master_log(LOG_DEBUG, "define_file_writer title "//trim(&
+      building_config%file_writers(current_building_file_writer)%title))
 
     field_index=get_field_index_from_name(attribute_names, "write_on_terminate")
     if (field_index .gt. 0) then 
@@ -713,12 +753,11 @@ contains
            merge(NF90_REAL, NF90_DOUBLE, &
                  conv_to_uppercase(retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE)) == "FLOAT")
       call log_master_newline()
-      call log_master_log(LOG_INFO, "Data will be written in FLOAT precision for file: "//&
+      call log_master_log(LOG_DEBUG, "Data will be written in FLOAT precision for file: "//&
                    trim(building_config%file_writers(current_building_file_writer)%file_name))
     else
       building_config%file_writers(current_building_file_writer)%write_precision = NF90_DOUBLE
     end if
-
     
     building_config%file_writers(current_building_file_writer)%number_of_contents=0
     allocate(building_config%file_writers(current_building_file_writer)%contents(DATA_SIZE_STRIDE))    
@@ -746,6 +785,9 @@ contains
     else
       building_config%diagnostics(current_building_diagnostic)%name=&
            retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE)
+      call log_master_log(LOG_DEBUG, "define_diagnostic '"&
+          //trim(retrieve_string_value(attribute_values(field_index), STRING_DATA_TYPE))//"'")
+
       building_config%diagnostics(current_building_diagnostic)%namespace=data_handling_namespace
       field_type_str=retrieve_string_value(attribute_values(type_field_index), STRING_DATA_TYPE)
       building_config%diagnostics(current_building_diagnostic)%field_type=get_field_type_from_attribute(field_type_str)
@@ -826,7 +868,8 @@ contains
     character(len=STRING_LENGTH) :: field_type_str, field_data_type_str, sizing_defn_str
     integer :: name_field_index, type_field_index, data_field_index, field_index, optional_field_index, idx
     
-
+    call log_master_log(LOG_DEBUG, "process_xml_into_field_description.")
+    
     name_field_index=get_field_index_from_name(attribute_names, "name")
     type_field_index=get_field_index_from_name(attribute_names, "type")
     data_field_index=get_field_index_from_name(attribute_names, "data_type")
@@ -842,10 +885,15 @@ contains
 
       call c_add_string(data_field_names, &
            building_config%data_definitions(current_building_definition)%fields(current_building_field)%name)
+           
+      call log_master_log(LOG_DEBUG, "data_field_names '" &
+        //trim(building_config%data_definitions(current_building_definition)%fields(current_building_field)%name)//"'")
 
       field_type_str=retrieve_string_value(attribute_values(type_field_index), STRING_DATA_TYPE)
       building_config%data_definitions(current_building_definition)%fields(current_building_field)%field_type=&
            get_field_type_from_attribute(field_type_str)
+
+      call log_master_log(LOG_DEBUG, "field_type '"//trim(field_type_str)//"'")
 
       if (building_config%data_definitions(current_building_definition)%fields(current_building_field)%field_type==0) then
         call log_log(LOG_ERROR, "The field type of '"//trim(field_type_str)//"' is not recognised")
@@ -1104,6 +1152,7 @@ contains
     character(len=*), intent(in) :: key
 
     integer :: i
+    call log_master_log(LOG_DEBUG, "retrieve_data_definition key '"//trim(key)//"'.")
 
     do i=1,io_configuration%number_of_data_definitions
       if (io_configuration%data_definitions(i)%name .eq. key) then
@@ -1145,10 +1194,12 @@ contains
     type(definition_description_type), dimension(:), allocatable :: build_definition_description_type_from_configuration
 
     integer :: i
+    call log_master_log(LOG_DEBUG, "build_definition_description_type_from_configuration.")
 
     allocate(build_definition_description_type_from_configuration(io_configuration%number_of_data_definitions))
 
     do i=1, io_configuration%number_of_data_definitions
+      call log_master_log(LOG_DEBUG, "definition_name '"//trim(io_configuration%data_definitions(i)%name)//"'.")
       build_definition_description_type_from_configuration(i)%definition_name=io_configuration%data_definitions(i)%name
       build_definition_description_type_from_configuration(i)%send_on_terminate=&
            io_configuration%data_definitions(i)%send_on_terminate
@@ -1166,14 +1217,17 @@ contains
     type(field_description_type), dimension(:), allocatable :: build_field_description_type_from_configuration
 
     integer :: i, j, field_index
+    call log_master_log(LOG_DEBUG, "build_field_description_type_from_configuration.")
 
     allocate(build_field_description_type_from_configuration(get_total_number_fields(io_configuration)))
     field_index=1
     do i=1, io_configuration%number_of_data_definitions
+      call log_master_log(LOG_DEBUG, "definition_name '"//trim(io_configuration%data_definitions(i)%name)//"'.")
       do j=1, io_configuration%data_definitions(i)%number_of_data_fields
         build_field_description_type_from_configuration(field_index)%definition_name=io_configuration%data_definitions(i)%name
         build_field_description_type_from_configuration(field_index)%field_name=&
              io_configuration%data_definitions(i)%fields(j)%name
+        call log_master_log(LOG_DEBUG, "field_name '"//trim(io_configuration%data_definitions(i)%fields(j)%name)//"'.")
         build_field_description_type_from_configuration(field_index)%field_type=&
              io_configuration%data_definitions(i)%fields(j)%field_type
         build_field_description_type_from_configuration(field_index)%data_type=&
@@ -1215,6 +1269,9 @@ contains
 
     monc_location=c_get_integer(io_configuration%monc_to_index, conv_to_string(source))
     get_number_field_dimensions=c_get_integer(io_configuration%registered_moncs(monc_location)%dimensions(data_id), field_name)
+    
+    write(output_str, *)"get_number_field_dimensions field_name '"//trim(field_name)//"' : ", get_number_field_dimensions
+    call log_master_log(LOG_DEBUG, trim(output_str))
   end function get_number_field_dimensions
 
   !> Retrieves the data value (wrapper) by field name or null if no entry was found in the provided collection
@@ -1227,6 +1284,7 @@ contains
     type(data_values_type), pointer :: get_data_value_from_hashmap_by_field_name
 
     class(*), pointer :: generic
+    call log_master_log(LOG_DEBUG, "get_data_value_from_hashmap_by_field_name '"//trim(field_name)//"'.")
 
     generic=>c_get_generic(collection, field_name)
     if (associated(generic)) then
@@ -1249,6 +1307,7 @@ contains
     type(data_values_type), pointer :: get_data_value_from_map_by_field_name
 
     class(*), pointer :: generic
+    call log_master_log(LOG_DEBUG, "get_data_value_from_map_by_field_name '"//trim(field_name)//"'.")
 
     generic=>c_get_generic(collection, field_name)
     if (associated(generic)) then
@@ -1269,6 +1328,7 @@ contains
     type(data_values_type), pointer :: get_data_value_from_map_entry
 
     class(*), pointer :: generic
+    call log_master_log(LOG_DEBUG, "get_data_value_from_map_entry.")
 
     generic=>c_get_generic(map_entry)
     if (associated(generic)) then
@@ -1302,6 +1362,7 @@ contains
     type(io_configuration_diagnostic_field_type), intent(out) :: diagnostic_config
 
     integer :: i
+    call log_master_log(LOG_DEBUG, "get_diagnostic_field_configuration '"//trim(field_name)//"'.")
 
     do i=1, size(io_configuration%diagnostics)
       if (io_configuration%diagnostics(i)%name == field_name .and. &
@@ -1327,6 +1388,8 @@ contains
     type(io_configuration_data_definition_type), intent(out), optional :: prognostic_containing_data_defn
 
     integer :: i, j
+    call log_master_log(LOG_DEBUG, "get_prognostic_field_configuration '"//trim(field_name)//"'.")
+
     do i=1, io_configuration%number_of_data_definitions
       do j=1, io_configuration%data_definitions(i)%number_of_data_fields
         if (io_configuration%data_definitions(i)%fields(j)%name == field_name .and. &

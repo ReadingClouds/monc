@@ -40,20 +40,20 @@ flux_budget_enabled=.true.
 socrates_couple_enabled=.true.
 
 # Control configuration
-
-display_synopsis_frequency=100
+logging=4
+display_synopsis_frequency=1
 nn_consolidation=1
 termination_time=43200.0
 dtm=0.1
 
 # IO server configuration
 ioserver_configuration_file="io/io_cfg_files/data_write_1file.xml"
-moncs_per_io_server=11
+moncs_per_io_server=8
 sampling_frequency=50
-3d_sampling_frequency=500
+3d_sampling_frequency=100
 mm=300.0
-mm1=60.0
-diag_write_freq=1800.0
+mm1=100.0
+diag_write_freq=600.0
 
 diagnostic_file="diagnostic_files/diagnostics_FOG_ts.nc"
 
@@ -61,7 +61,7 @@ diagnostic_file="diagnostic_files/diagnostics_FOG_ts.nc"
 checkpoint_frequency=0
 checkpoint_file="checkpoint_files/fog_dump.nc"
 check_walltime_frequency=10000
-walltime_limit=04:00:00
+walltime_limit=01:00:00
 
 # Advection choices
 advection_flow_fields=pw

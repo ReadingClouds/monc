@@ -1,0 +1,26 @@
+<data-definition name="smagorinsky_output_fields" frequency="{3d_sampling_frequency}" namespace="smagorinsky_outputns">
+  <field name="z_ml_height"    type="array" data_type="double" size="y,x" collective=true optional=true/>
+  <field name="z_ct_height"    type="array" data_type="double" size="y,x" collective=true optional=true/>
+  <field name="mom_env_ml"     type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="mom_ic_ml"      type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="scalar_env_ml"  type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="scalar_ic_ml"   type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="ssq"            type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="Ri"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="fm"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="fh"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+</data-definition>
+
+
+<group name="smagorinsky_output" namespace="smagorinsky_outputns">
+  <member name="z_ml_height"   />
+  <member name="z_ct_height"   />
+  <member name="mom_env_ml"    />
+  <member name="mom_ic_ml"     />
+  <member name="scalar_env_ml" />
+  <member name="scalar_ic_ml"  />
+  <member name="ssq"           />
+  <member name="Ri"            />
+  <member name="fm"            />
+  <member name="fh"            />
+</group>

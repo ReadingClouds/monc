@@ -1,0 +1,9 @@
+<data-definition name="smagorinsky_3d_fields_data" frequency="{3d_sampling_frequency}" namespace="smagorinsky_3d_fieldsns"> 
+  <field name="diff" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="vis" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+</data-definition> 
+
+<group name="smagorinsky_3d_fields" namespace="smagorinsky_3d_fieldsns"> 
+  <member name="diff"/> 
+  <member name="vis"/> 
+</group> 

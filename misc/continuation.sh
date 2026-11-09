@@ -89,7 +89,7 @@ run_monc() {
             local submittedId=$(qsub -W depend=afterany:$PBS_JOBID -v crun=$outputid,cpfile=$checkpoint_filename $SUBMISSION_SCRIPT_NAME)
             local jobId=$PBS_JOBID
             local jobName=$PBS_JOBNAME
-            local cmd="aprun -B"
+	    local cmd="mpiexec -n ${NPES} --label --line-buffer"
 
         #  Slurm
         elif [ -x "$(command -v sbatch)" ] ; then

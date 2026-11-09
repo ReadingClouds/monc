@@ -362,6 +362,16 @@ contains
            current_state%field_stepping, current_state%dtm, real(0., kind=DEFAULT_PRECISION), c1, c2, &
            current_state%field_stepping == CENTRED_STEPPING)
     end do
+    if (.true.) then ! turn off timestepping for now.
+    do i=1,current_state%number_ca_fields
+      if (current_state%ca(i)%active .and. current_state%ca_advect(i)) then         
+        call step_single_field(current_state%column_local_x,  current_state%column_local_y, x_prev, y_prev, &
+             current_state%ca(i), current_state%zca(i), current_state%sca(i), current_state%local_grid, .false., &
+             current_state%field_stepping, current_state%dtm, real(0., kind=DEFAULT_PRECISION), c1, c2, &
+             current_state%field_stepping == CENTRED_STEPPING)
+      end if
+    end do
+    end if
   end subroutine step_all_fields 
 
   !> Determines the minimum and maximum values for the local flow field. These are before the stepping, and are all reduced

@@ -21,9 +21,9 @@ module writer_federator_mod
   use forthread_mod, only : forthread_mutex_init, forthread_mutex_lock, forthread_mutex_unlock, forthread_mutex_destroy, &
        forthread_rwlock_rdlock, forthread_rwlock_wrlock, forthread_rwlock_unlock, forthread_rwlock_init, forthread_rwlock_destroy
   use threadpool_mod, only : check_thread_status
-  use logging_mod, only : LOG_DEBUG, LOG_ERROR, LOG_WARN, log_log, log_master_log, log_get_logging_level, log_is_master
+  use logging_mod, only : LOG_DEBUG, LOG_ERROR, LOG_WARN, LOG_INFO, log_log, log_master_log, log_get_logging_level, log_is_master
   use writer_types_mod, only : writer_type, writer_field_type, write_field_collective_values_type, pending_write_type, &
-       collective_q_field_representation_type, collective_tracer_representation_type, &
+       collective_q_field_representation_type, collective_tracer_representation_type, collective_ca_field_representation_type, &
        write_field_collective_descriptor_type, write_field_collective_monc_info_type, &
        netcdf_diagnostics_timeseries_type, netcdf_diagnostics_type
   use netcdf_filetype_writer_mod, only : initialise_netcdf_filetype, finalise_netcdf_filetype, define_netcdf_file, &
@@ -46,19 +46,23 @@ module writer_federator_mod
 #endif
 
   type(writer_type), volatile, dimension(:), allocatable :: writer_entries
-  type(hashset_type), volatile :: used_field_names, q_field_names, tracer_names
-  type(hashmap_type), volatile :: time_points, q_field_splits, collective_q_field_dims, tracer_splits, collective_tracer_dims
+  type(hashset_type), volatile :: used_field_names, q_field_names, tracer_names, ca_field_names
+  type(hashmap_type), volatile :: time_points, q_field_splits, collective_q_field_dims, tracer_splits, collective_tracer_dims, &
+                                  ca_field_splits, collective_ca_field_dims
 
   integer, volatile :: time_points_rwlock, collective_contiguous_initialisation_mutex, currently_writing_mutex
   logical, volatile :: currently_writing
 
   logical :: time_basis, force_output_on_interval
   real(kind=DEFAULT_PRECISION) :: model_initial_time
+  
+  character(len=1000) :: output_str
 
   public initialise_writer_federator, finalise_writer_federator, provide_ordered_field_to_writer_federator, &
        check_writer_for_trigger, is_field_used_by_writer_federator, inform_writer_federator_fields_present, &
        inform_writer_federator_time_point, provide_q_field_names_to_writer_federator, is_field_split_on_q, &
-       provide_tracer_names_to_writer_federator, is_field_split_on_tracer, any_pending
+       provide_tracer_names_to_writer_federator, is_field_split_on_tracer, &
+       provide_ca_field_names_to_writer_federator, is_field_split_on_ca, any_pending
 contains
 
   !> Initialises the write federator and configures it based on the user configuration. Also initialises the time manipulations
@@ -76,6 +80,8 @@ contains
     logical :: match
     type(hashset_type) :: writer_field_names, duplicate_field_names
     
+    call log_master_log(LOG_DEBUG, "initialise_writer_federator.") 
+    
     model_initial_time = reconfig_initial_time
     time_basis = options_get_logical(io_configuration%options_database,"time_basis")
     force_output_on_interval = options_get_logical(io_configuration%options_database,"force_output_on_interval")
@@ -91,10 +97,13 @@ contains
     call initialise_netcdf_filetype()
  
     total_number = 0 
-    allocate(writer_entries(io_configuration%number_of_writers))    
+    allocate(writer_entries(io_configuration%number_of_writers))   
+     
     do i=1, io_configuration%number_of_writers
       current_field_index=0
       number_contents=io_configuration%file_writers(i)%number_of_contents
+      call log_master_log(LOG_DEBUG, "initialise_writer_federator file_name '"//&
+        trim(io_configuration%file_writers(i)%file_name)//"'.") 
       allocate(writer_entries(i)%contents(get_total_number_writer_fields(io_configuration, i)))
       writer_entries(i)%filename=io_configuration%file_writers(i)%file_name
       writer_entries(i)%title=io_configuration%file_writers(i)%title
@@ -125,6 +134,10 @@ contains
       writer_entries(i)%contains_io_status_dump=.false.
       do j=1, number_contents
         if (io_configuration%file_writers(i)%contents(j)%facet_type == GROUP_TYPE) then
+          write(output_str, *)"initialise_writer_federator ", i,j,trim(io_configuration%file_writers(i)%file_name), ' ', &
+                              trim(io_configuration%file_writers(i)%title)
+          call log_master_log(LOG_DEBUG, trim(output_str))
+
           current_field_index=add_group_of_fields_to_writer_entry(io_configuration, i, j, current_field_index, &
                writer_field_names, duplicate_field_names, diagnostic_generation_frequency)
         else if (io_configuration%file_writers(i)%contents(j)%facet_type == FIELD_TYPE) then
@@ -329,13 +342,14 @@ contains
 
     type(iterator_type) :: iterator
     character(len=STRING_LENGTH) :: specific_name
-    integer :: i, number_q_fields, number_tracers, expected_io
+    integer :: i, number_q_fields, number_tracers, number_ca_fields, expected_io
     logical :: field_found, expected_here, diagnostics_mode
 
     iterator=c_get_iterator(used_field_names)
     expected_io=-1
     do while (c_has_next(iterator))
       specific_name=c_next_string(iterator)
+      call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling specific_name "//trim(specific_name))
       if (present(field_names)) then
         field_found=c_contains(field_names, specific_name)
         diagnostics_mode=.false.
@@ -347,13 +361,16 @@ contains
         field_found=.false.
       end if
       if (field_found) then
+        call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//trim(specific_name))
         expected_here=expected_io == -1 .or. expected_io == io_configuration%my_io_rank
         call enable_specific_field_by_name(specific_name, diagnostics_mode, expected_here)      
       end if
     end do
+    
     iterator=c_get_iterator(q_field_names)
     do while (c_has_next(iterator))
       specific_name=c_next_string(iterator)
+      call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling specific_name "//trim(specific_name))
       if (present(field_names)) then
         field_found=c_contains(field_names, specific_name)
         diagnostics_mode=.false.
@@ -369,18 +386,24 @@ contains
         number_q_fields=c_get_integer(io_configuration%dimension_sizing, "qfields")
         do i=1, number_q_fields
           if (c_size(io_configuration%q_field_names) .ge. i) then
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//trim(specific_name)//"_"//&
+              trim(c_get_string(io_configuration%q_field_names, i)))
             call enable_specific_field_by_name(trim(specific_name)//"_"//trim(c_get_string(io_configuration%q_field_names, i)), &
                  diagnostics_mode, expected_here)
           else
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//&
+              trim(specific_name)//"_udef"//trim(conv_to_string(i)))
             call enable_specific_field_by_name(trim(specific_name)//"_udef"//trim(conv_to_string(i)), &
                  diagnostics_mode, expected_here)
           end if
         end do
       end if
-    end do    
+    end do   
+     
     iterator=c_get_iterator(tracer_names)
     do while (c_has_next(iterator))
       specific_name=c_next_string(iterator)
+      call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling specific_name "//trim(specific_name))
       if (present(field_names)) then
         field_found=c_contains(field_names, specific_name)
         diagnostics_mode=.false.
@@ -396,9 +419,50 @@ contains
         number_tracers=c_get_integer(io_configuration%dimension_sizing, "tfields")
         do i=1, number_tracers
           if (c_size(io_configuration%tracer_names) .ge. i) then
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//&
+              trim(specific_name)//"_"//trim(c_get_string(io_configuration%tracer_names, i)))
             call enable_specific_field_by_name(trim(specific_name)//"_"//trim(c_get_string(io_configuration%tracer_names, i)), &
                  diagnostics_mode, expected_here)
           else
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//&
+              trim(specific_name)//"_udef"//trim(conv_to_string(i)))
+            call enable_specific_field_by_name(trim(specific_name)//"_udef"//trim(conv_to_string(i)), &
+                 diagnostics_mode, expected_here)
+          end if
+        end do
+      end if
+    end do    
+    
+    iterator=c_get_iterator(ca_field_names)
+    do while (c_has_next(iterator))
+      specific_name=c_next_string(iterator)
+      call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling specific_name "//trim(specific_name))
+      if (present(field_names)) then
+        field_found=c_contains(field_names, specific_name)
+        diagnostics_mode=.false.
+      else if (present(diag_field_names_and_roots)) then
+        field_found=c_contains(diag_field_names_and_roots, specific_name)
+        if (field_found) expected_io=c_get_integer(diag_field_names_and_roots, specific_name)
+        diagnostics_mode=.true.
+      else
+        field_found=.false.
+      end if
+
+!      write(output_str, *)"Name:", specific_name, field_found 
+!      call log_master_log(LOG_DEBUG, output_str)
+
+      if (field_found) then
+        expected_here=expected_io == -1 .or. expected_io == io_configuration%my_io_rank
+        number_ca_fields=c_get_integer(io_configuration%dimension_sizing, "cafields")
+        do i=1, number_ca_fields
+          if (c_size(io_configuration%ca_field_names) .ge. i) then
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//&
+              trim(specific_name)//"_"//trim(c_get_string(io_configuration%ca_field_names, i)))
+            call enable_specific_field_by_name(trim(specific_name)//"_"//trim(c_get_string(io_configuration%ca_field_names, i)), &
+                 diagnostics_mode, expected_here)
+          else
+            call log_master_log(LOG_DEBUG, "inform_writer_federator_fields_present enabling "//&
+              trim(specific_name)//"_udef"//trim(conv_to_string(i)))
             call enable_specific_field_by_name(trim(specific_name)//"_udef"//trim(conv_to_string(i)), &
                  diagnostics_mode, expected_here)
           end if
@@ -442,6 +506,15 @@ contains
     is_field_split_on_tracer=c_contains(tracer_names, field_name)
   end function is_field_split_on_tracer  
 
+  !> Determines whether a field is split on ca or not
+  !! @param field_name The field name to check whether it is being used or not
+  !! @returns Whether this field is used or not (and then further split to be constituient parts of ca)
+  logical function is_field_split_on_ca(field_name)
+    character(len=*), intent(in) :: field_name
+
+    is_field_split_on_ca=c_contains(ca_field_names, field_name)
+  end function is_field_split_on_ca  
+
   !> Enables a specific field by its name, this will locate all the fields with this name and enable them
   !! @param field_name The name of the field to enable
   subroutine enable_specific_field_by_name(field_name, diagnostics_mode, expected_here)
@@ -481,10 +554,14 @@ contains
     logical :: continue_search
     integer :: writer_index, contents_index, i
     character(len=STRING_LENGTH) :: search_field, field_name, specific_name
+    
+    call log_master_log(LOG_DEBUG, "Providing q_field_names.") 
 
     iterator=c_get_iterator(q_field_names)
     do while (c_has_next(iterator))
       specific_name=c_next_string(iterator)
+    
+      call log_master_log(LOG_DEBUG, "Providing q_field_names specific_name '"//trim(specific_name)//"'.") 
       q_field_iterator=c_get_iterator(q_provided_field_names)
       i=1
       do while (c_has_next(q_field_iterator))
@@ -498,6 +575,7 @@ contains
           continue_search=get_next_applicable_writer_entry(search_field, writer_index_point=writer_index, &
                contents_index_point=contents_index)
           if (continue_search) then
+            call log_master_log(LOG_DEBUG, "Provided q_field_name '"//trim(field_name)//"'.") 
             writer_entries(writer_index)%contents(contents_index)%field_name=field_name
           end if
         end do
@@ -545,6 +623,46 @@ contains
       end do     
     end do    
   end subroutine provide_tracer_names_to_writer_federator
+  
+  !> Provides the ca field names to the write federator, this is required as on initialisation we don't know what these are and
+  !! only when MONC register do they inform the IO server of the specifics
+  !! @param ca_field_names An ordered list of ca field names
+  subroutine provide_ca_field_names_to_writer_federator(ca_provided_field_names)
+    type(list_type), intent(inout) :: ca_provided_field_names
+
+    type(iterator_type) :: iterator, ca_field_iterator
+    logical :: continue_search
+    integer :: writer_index, contents_index, i
+    character(len=STRING_LENGTH) :: search_field, field_name, specific_name
+    
+    call log_master_log(LOG_DEBUG, "Providing ca_field_names.") 
+
+    iterator=c_get_iterator(ca_field_names)
+    do while (c_has_next(iterator))
+      specific_name=c_next_string(iterator)
+      ca_field_iterator=c_get_iterator(ca_provided_field_names)
+      i=1
+      do while (c_has_next(ca_field_iterator))
+        search_field=trim(specific_name)//"_udef"//trim(conv_to_string(i))
+        field_name=trim(specific_name)//"_"//trim(c_next_string(ca_field_iterator))        
+        continue_search=.true.
+        writer_index=1
+        contents_index=0
+        do while (continue_search)
+          contents_index=contents_index+1
+          continue_search=get_next_applicable_writer_entry(search_field, writer_index_point=writer_index, &
+               contents_index_point=contents_index)
+          if (continue_search) then
+            call log_master_log(LOG_DEBUG, "Provided ca_field_name '"//trim(field_name)//"'.") 
+            writer_entries(writer_index)%contents(contents_index)%field_name=field_name
+          end if
+        end do
+        i=i+1
+        call c_add_string(used_field_names, field_name)
+        call c_remove(used_field_names, search_field)
+      end do     
+    end do    
+  end subroutine provide_ca_field_names_to_writer_federator
 
   subroutine provide_ordered_field_to_writer_federator(io_configuration, field_name, field_namespace, field_values, &
        timestep, time, source)
@@ -656,6 +774,23 @@ contains
              timestep, time, source)
         index=index+individual_size
       end do
+    else if (c_contains(ca_field_names, field_name)) then
+      if (c_contains(ca_field_splits, field_name)) then
+        individual_size=c_get_integer(ca_field_splits, field_name)
+      else if (source .gt. -1) then
+        individual_size=get_size_of_collective_ca(io_configuration, field_name, source)
+      else
+        call log_log(LOG_WARN, "Can not find ca split field in ca field names or collective field names with source, ignoring")
+        return
+      end if
+      iterator=c_get_iterator(io_configuration%ca_field_names)
+      index=1
+      do while (c_has_next(iterator))
+        call provide_ordered_single_field_to_writer_federator(io_configuration, &
+             trim(field_name)//"_"//trim(c_next_string(iterator)), field_namespace, field_values(index:index+individual_size-1), &
+             timestep, time, source)
+        index=index+individual_size
+      end do
     end if
   end subroutine provide_ordered_field_to_writer_federator_real_values
 
@@ -677,7 +812,13 @@ contains
     generic=>c_get_generic(collective_q_field_dims, field_name)
     select type(generic)
       type is(collective_q_field_representation_type)
+        write(output_str, *)"get_size_of_collective_q size(generic%dimensions)", size(generic%dimensions)
+        call log_master_log(LOG_DEBUG, trim(output_str))
+
         do i=1, size(generic%dimensions)
+          write(output_str, *)"get_size_of_collective_q ", i, &
+            io_configuration%registered_moncs(monc_index)%local_dim_sizes(generic%dimensions(i)) 
+          call log_master_log(LOG_DEBUG, trim(output_str))
           get_size_of_collective_q=&
                get_size_of_collective_q*io_configuration%registered_moncs(monc_index)%local_dim_sizes(generic%dimensions(i))
         end do        
@@ -708,6 +849,36 @@ contains
         end do        
     end select    
   end function get_size_of_collective_tracer  
+
+  !> Retrieves the data size for each ca entry of a collective ca field for the specific source MONC that has sent data
+  !! @param io_configuration The IO server configuration
+  !! @param field_name The field name to write (if appropriate)
+  !! @param source  MONC source for the communicated fields
+  !! @returns The size (elements) per ca split field
+  integer function get_size_of_collective_ca(io_configuration, field_name, source)
+    type(io_configuration_type), intent(inout) :: io_configuration
+    character(len=*), intent(in) :: field_name
+    integer, intent(in) :: source
+
+    class(*), pointer :: generic
+    integer :: i, monc_index
+
+    get_size_of_collective_ca=1
+    monc_index=get_monc_location(io_configuration, source)
+    generic=>c_get_generic(collective_ca_field_dims, field_name)
+    select type(generic)
+      type is(collective_ca_field_representation_type)
+        write(output_str, *)"get_size_of_collective_ca size(generic%dimensions)", size(generic%dimensions)
+        call log_master_log(LOG_DEBUG, trim(output_str))
+        do i=1, size(generic%dimensions)
+          write(output_str, *)"get_size_of_collective_ca ", i, &
+            io_configuration%registered_moncs(monc_index)%local_dim_sizes(generic%dimensions(i)) 
+          call log_master_log(LOG_DEBUG, trim(output_str))
+          get_size_of_collective_ca=&
+               get_size_of_collective_ca*io_configuration%registered_moncs(monc_index)%local_dim_sizes(generic%dimensions(i))
+        end do        
+    end select    
+  end function get_size_of_collective_ca  
 
   !> Provides a single ordered field, i.e. Q fields have been split by this point
   !! @param io_configuration The IO server configuration
@@ -1431,11 +1602,15 @@ contains
     type(io_configuration_type), intent(inout) :: io_configuration
     integer, intent(in) :: writer_entry_index
 
-    integer :: i, number_contents, group_index, number_q_fields, number_tracers
+    integer :: i, number_contents, group_index, number_q_fields, number_tracers, number_ca_fields
 
     get_total_number_writer_fields=0
     number_q_fields=c_get_integer(io_configuration%dimension_sizing, "qfields")
     number_tracers=c_get_integer(io_configuration%dimension_sizing, "tfields")
+    number_ca_fields=c_get_integer(io_configuration%dimension_sizing, "cafields")
+    
+    call log_master_log(LOG_DEBUG, "get_total_number_writer_fields '"//&
+    trim(io_configuration%file_writers(writer_entry_index)%title)//"'.")
 
     number_contents=io_configuration%file_writers(writer_entry_index)%number_of_contents
     do i=1, number_contents
@@ -1444,13 +1619,22 @@ contains
              io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name)
         if (group_index == 0) call log_log(LOG_ERROR, "Can not find group '"//trim(&
              io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name)//"'")
+!        call log_master_log(LOG_DEBUG, "get_total_number_writer_fields facet_name '"//trim(&
+!             io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name)//"'")
         get_total_number_writer_fields=get_total_number_writer_fields+&
              get_group_number_of_fields(io_configuration, io_configuration%groups(group_index)%members, &
-             number_q_fields, number_tracers, io_configuration%groups(group_index)%namespace)
+             number_q_fields, number_tracers, number_ca_fields, io_configuration%groups(group_index)%namespace)
+        write(output_str, *)get_total_number_writer_fields
+        call log_master_log(LOG_DEBUG, "get_total_number_writer_fields facet_name '"//trim(&
+             io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name)//"' "//trim(output_str))
       else if (io_configuration%file_writers(writer_entry_index)%contents(i)%facet_type == FIELD_TYPE) then
         ! NSE
         get_total_number_writer_fields=get_total_number_writer_fields+get_field_number_of_fields(io_configuration, &
-             io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name, "", number_q_fields, number_tracers)
+             io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name, "", &
+             number_q_fields, number_tracers, number_ca_fields)
+        write(output_str, *)get_total_number_writer_fields
+        call log_master_log(LOG_DEBUG, "get_total_number_writer_fields (no group) facet_name '"//trim(&
+             io_configuration%file_writers(writer_entry_index)%contents(i)%facet_name)//"' "//trim(output_str))
       end if
     end do
   end function get_total_number_writer_fields
@@ -1460,11 +1644,13 @@ contains
   !! @param group_members The members of the group
   !! @param num_q_fields The number of Q fields
   !! @param num_tracers The number of tracer fields
+  !! @param num_ca_fields The number of ca fields
   !! @returns The number of fields that make up this group
-  integer function get_group_number_of_fields(io_configuration, group_members, num_q_fields, num_tracers, namespace)
+  integer function get_group_number_of_fields(io_configuration, group_members, num_q_fields, num_tracers, num_ca_fields, & 
+                                              namespace)
     type(io_configuration_type), intent(inout) :: io_configuration
     type(list_type) :: group_members
-    integer, intent(in) :: num_q_fields, num_tracers
+    integer, intent(in) :: num_q_fields, num_tracers, num_ca_fields
     character(len=STRING_LENGTH), intent(in) :: namespace
 
     type(iterator_type) :: iterator
@@ -1475,7 +1661,9 @@ contains
     do while (c_has_next(iterator))
       field_name=c_next_string(iterator)
       get_group_number_of_fields=get_group_number_of_fields+get_field_number_of_fields(io_configuration, field_name, namespace, &
-           num_q_fields, num_tracers)
+           num_q_fields, num_tracers, num_ca_fields)
+      write(output_str, *)get_group_number_of_fields
+      call log_master_log(LOG_DEBUG, "Number of fields for '"//trim(field_name)//"': "//trim(output_str))
     end do
   end function get_group_number_of_fields
 
@@ -1486,10 +1674,11 @@ contains
   !! @param num_q_fields The number of Q fields
   !! @param num_tracers The number of tracer fields
   !! @returns The number of fields that make up this field
-  integer function get_field_number_of_fields(io_configuration, field_name, field_namespace, num_q_fields, num_tracers)
+  integer function get_field_number_of_fields(io_configuration, field_name, field_namespace, num_q_fields, num_tracers, &
+                                              num_ca_fields)
     type(io_configuration_type), intent(inout) :: io_configuration
     character(len=*), intent(in) :: field_name, field_namespace
-    integer, intent(in) :: num_q_fields, num_tracers
+    integer, intent(in) :: num_q_fields, num_tracers, num_ca_fields
 
     type(io_configuration_field_type) :: prognostic_field_configuration
     type(io_configuration_data_definition_type) :: prognostic_containing_data_defn
@@ -1503,6 +1692,9 @@ contains
         else if (diagnostic_field_configuration%dim_size_defns(diagnostic_field_configuration%dimensions) .eq. "tfields") then
           get_field_number_of_fields=num_tracers
           return
+        else if (diagnostic_field_configuration%dim_size_defns(diagnostic_field_configuration%dimensions) .eq. "cafields") then
+          get_field_number_of_fields=num_ca_fields
+          return
         end if
       end if
       get_field_number_of_fields=1
@@ -1514,6 +1706,9 @@ contains
           return
         else if (prognostic_field_configuration%dim_size_defns(prognostic_field_configuration%dimensions) .eq. "tfields") then
           get_field_number_of_fields=num_tracers
+          return
+        else if (prognostic_field_configuration%dim_size_defns(prognostic_field_configuration%dimensions) .eq. "cafields") then
+          get_field_number_of_fields=num_ca_fields
           return
         end if
       end if
@@ -1538,17 +1733,23 @@ contains
     integer :: group_index
     character(len=STRING_LENGTH) :: field_name
     type(iterator_type) :: iterator
+    
 
     add_group_of_fields_to_writer_entry=current_field_index
     group_index=get_index_of_group(io_configuration, &
          io_configuration%file_writers(writer_entry_index)%contents(facet_index)%facet_name)
     if (group_index == 0) then
-      call log_log(LOG_ERROR, "Can not find group '"//&
+      call log_master_log(LOG_ERROR, "Can not find group '"//&
            trim(io_configuration%file_writers(writer_entry_index)%contents(facet_index)%facet_name)//"' in the configuration")
     end if
+    call log_master_log(LOG_DEBUG, "add_group_of_fields_to_writer_entry '"//&
+      trim(io_configuration%file_writers(writer_entry_index)%contents(facet_index)%facet_name)//"'.")
+
     iterator=c_get_iterator(io_configuration%groups(group_index)%members)
     do while (c_has_next(iterator))
       field_name=c_next_string(iterator)
+      call log_master_log(LOG_DEBUG, "add_group_of_fields_to_writer_entry field '"//trim(field_name)//"'.")
+
       add_group_of_fields_to_writer_entry=add_group_of_fields_to_writer_entry+add_field_to_writer_entry(io_configuration, &
            writer_entry_index, facet_index, add_group_of_fields_to_writer_entry, field_name, &
            io_configuration%groups(group_index)%namespace, writer_field_names, duplicate_field_names, &
@@ -1556,8 +1757,8 @@ contains
     end do    
   end function add_group_of_fields_to_writer_entry
 
-  !> Adds a field to the writer entry, this will split the Q and tracer fields. 
-  !! However at initialisation we don't know what the Q and tracer
+  !> Adds a field to the writer entry, this will split the Q, tracer and ca fields. 
+  !! However at initialisation we don't know what the Q, tracer and ca
   !! fields are called, hence place a marker which will be replaced later on
   !! @param io_configuration The IO server configuration
   !! @param writer_entry_index Index of the writer entry that we are dealing with
@@ -1576,13 +1777,16 @@ contains
     type(hashset_type), intent(inout) :: writer_field_names, duplicate_field_names
     type(hashmap_type), intent(inout) :: diagnostic_generation_frequency
 
-    integer :: i, number_q_fields, number_tracers, tot_size
+    integer :: i, number_q_fields, number_tracers, number_ca_fields, tot_size
     type(io_configuration_field_type) :: prognostic_field_configuration
     type(io_configuration_data_definition_type) :: prognostic_containing_data_defn
     type(io_configuration_diagnostic_field_type) :: diagnostic_field_configuration
     type(collective_q_field_representation_type), pointer :: collective_q_field
     type(collective_tracer_representation_type), pointer :: collective_tracer
+    type(collective_ca_field_representation_type), pointer :: collective_ca_field
     class(*), pointer :: generic
+    
+    call log_master_log(LOG_DEBUG, "add_field_to_writer_entry '"//trim(field_name)//"'.")
     
     if (get_diagnostic_field_configuration(io_configuration, field_name, field_namespace, diagnostic_field_configuration)) then
       if (diagnostic_field_configuration%field_type == ARRAY_FIELD_TYPE) then
@@ -1614,6 +1818,20 @@ contains
           call c_put_integer(tracer_splits, field_name, tot_size)
           add_field_to_writer_entry=number_tracers
           return
+        else if (diagnostic_field_configuration%dim_size_defns(diagnostic_field_configuration%dimensions) .eq. "cafields") then  
+          number_ca_fields=c_get_integer(io_configuration%dimension_sizing, "cafields")
+          do i=1, number_ca_fields
+            call add_specific_field_to_writer_entry(io_configuration, writer_entry_index, io_config_facet_index, &
+                 my_facet_index+i, trim(field_name)//"_udef"//trim(conv_to_string(i)), field_namespace, writer_field_names, &
+                 duplicate_field_names, c_get_integer(diagnostic_generation_frequency, field_name), diagnostic_field_configuration)
+          end do
+          tot_size=1
+          do i=1, writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dimensions
+            tot_size=tot_size*writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%actual_dim_size(i)
+          end do
+          call c_put_integer(ca_field_splits, field_name, tot_size)
+          add_field_to_writer_entry=number_ca_fields
+          return
         end if
       end if
       call add_specific_field_to_writer_entry(io_configuration, writer_entry_index, io_config_facet_index, &
@@ -1625,6 +1843,7 @@ contains
       if (prognostic_field_configuration%field_type == ARRAY_FIELD_TYPE) then
         if (prognostic_field_configuration%dim_size_defns(prognostic_field_configuration%dimensions) .eq. "qfields") then  
           number_q_fields=c_get_integer(io_configuration%dimension_sizing, "qfields")
+          call log_master_log(LOG_DEBUG, "collective_q_field "//field_name)
           do i=1, number_q_fields
             call add_specific_field_to_writer_entry(io_configuration, writer_entry_index, io_config_facet_index, &
                  my_facet_index+i, trim(field_name)//"_udef"//trim(conv_to_string(i)), field_namespace, writer_field_names, &
@@ -1632,10 +1851,15 @@ contains
                  prognostic_field_configuration=prognostic_field_configuration)
           end do
           if (prognostic_field_configuration%collective) then
+            call log_master_log(LOG_DEBUG, "collective_q_field%dimensions '"//trim(field_name)//"'.")
             allocate(collective_q_field)
             allocate(collective_q_field%dimensions(&
                  writer_entries(writer_entry_index)%contents(my_facet_index+number_q_fields)%dimensions))
+                 
             do i=1, writer_entries(writer_entry_index)%contents(my_facet_index+number_q_fields)%dimensions
+              write(output_str, *)"dim(",i,") ",&
+                trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_q_fields)%dim_size_defns(i))
+              call log_master_log(LOG_DEBUG, trim(output_str))
               if (trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_q_fields)%dim_size_defns(i)) == "z" .or. &
                   trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_q_fields)%dim_size_defns(i)) == "zn" ) then
                 collective_q_field%dimensions(i)=1
@@ -1647,6 +1871,7 @@ contains
                 collective_q_field%dimensions(i)=3
               end if
             end do
+
             generic=>collective_q_field
             call c_put_generic(collective_q_field_dims, field_name, generic, .false.)
           else
@@ -1661,18 +1886,21 @@ contains
           return
         else if (prognostic_field_configuration%dim_size_defns(prognostic_field_configuration%dimensions) .eq. "tfields") then  
           number_tracers=c_get_integer(io_configuration%dimension_sizing, "tfields")
-          do i=1, number_tracers
-            
+          do i=1, number_tracers            
             call add_specific_field_to_writer_entry(io_configuration, writer_entry_index, io_config_facet_index, &
                  my_facet_index+i, trim(field_name)//"_udef"//trim(conv_to_string(i)), field_namespace, writer_field_names, &
                  duplicate_field_names, prognostic_containing_data_defn%frequency, &
                  prognostic_field_configuration=prognostic_field_configuration)
           end do
           if (prognostic_field_configuration%collective) then
+            call log_master_log(LOG_DEBUG, "collective_tracer%dimensions '"//trim(field_name)//"'.")
             allocate(collective_tracer)
             allocate(collective_tracer%dimensions(&
                  writer_entries(writer_entry_index)%contents(my_facet_index+number_tracers)%dimensions))
             do i=1, writer_entries(writer_entry_index)%contents(my_facet_index+number_tracers)%dimensions
+              write(output_str, *)"dim(",i,") ",&
+                trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_tracers)%dim_size_defns(i))
+              call log_master_log(LOG_DEBUG, trim(output_str))
               if (trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_tracers)%dim_size_defns(i)) == "z" .or. &
                   trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_tracers)%dim_size_defns(i)) == "zn" ) then
                 collective_tracer%dimensions(i)=1
@@ -1695,6 +1923,50 @@ contains
           end if
           call c_add_string(tracer_names, field_name)
           add_field_to_writer_entry=number_tracers
+          return
+        else if (prognostic_field_configuration%dim_size_defns(prognostic_field_configuration%dimensions) .eq. "cafields") then  
+          number_ca_fields=c_get_integer(io_configuration%dimension_sizing, "cafields")
+          call log_master_log(LOG_DEBUG, "collective_ca_field "//field_name)
+          do i=1, number_ca_fields
+            call add_specific_field_to_writer_entry(io_configuration, writer_entry_index, io_config_facet_index, &
+                 my_facet_index+i, trim(field_name)//"_udef"//trim(conv_to_string(i)), field_namespace, writer_field_names, &
+                 duplicate_field_names, prognostic_containing_data_defn%frequency, &
+                 prognostic_field_configuration=prognostic_field_configuration)
+          end do
+          if (prognostic_field_configuration%collective) then
+            call log_master_log(LOG_DEBUG, "collective_ca_field%dimensions '"//trim(field_name)//"'.")
+            allocate(collective_ca_field)
+            allocate(collective_ca_field%dimensions(&
+                 writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dimensions))
+            do i=1, writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dimensions
+              write(output_str, *)"dim(",i,") ",&
+                trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dim_size_defns(i))
+              call log_master_log(LOG_DEBUG, trim(output_str))
+              if (trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dim_size_defns(i)) == "z" .or. &
+                  trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dim_size_defns(i)) == "zn" ) &
+                then
+                collective_ca_field%dimensions(i)=1
+              else if (trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dim_size_defns(i)) &
+                   == "y") then
+                collective_ca_field%dimensions(i)=2
+              else if (trim(writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dim_size_defns(i)) &
+                   == "x") then
+                collective_ca_field%dimensions(i)=3
+              end if
+            end do
+            write(output_str, *)"collective_ca_field%dimensions ", trim(field_name), collective_ca_field%dimensions
+            call log_master_log(LOG_DEBUG, trim(output_str))
+            generic=>collective_ca_field
+            call c_put_generic(collective_ca_field_dims, field_name, generic, .false.)
+          else
+            tot_size=1
+            do i=1, writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%dimensions
+              tot_size=tot_size*writer_entries(writer_entry_index)%contents(my_facet_index+number_ca_fields)%actual_dim_size(i)
+            end do
+            call c_put_integer(ca_field_splits, field_name, tot_size)
+          end if
+          call c_add_string(ca_field_names, field_name)
+          add_field_to_writer_entry=number_ca_fields
           return
         end if     
       end if
@@ -1733,6 +2005,8 @@ contains
 
     writer_entries(writer_entry_index)%contents(my_facet_index)%field_name=field_name
     writer_entries(writer_entry_index)%contents(my_facet_index)%field_namespace=field_namespace
+
+    call log_master_log(LOG_DEBUG, "add_specific_field_to_writer_entry '"//trim(field_name)//"'.")
 
     call c_add_string(used_field_names, field_name)
     
@@ -1801,6 +2075,8 @@ contains
           writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions=prognostic_field_configuration%dimensions
           writer_entries(writer_entry_index)%contents(my_facet_index)%dim_size_defns=&
                prognostic_field_configuration%dim_size_defns
+          write(output_str, *)"dimensions ", prognostic_field_configuration%dimensions
+          call log_master_log(LOG_DEBUG, trim(output_str))
         else
           call log_log(LOG_ERROR, "The writing prognostic field '"//trim(field_name)//"' configuration must have dimensions")
         end if
@@ -1816,6 +2092,11 @@ contains
       end if      
       if (writer_entries(writer_entry_index)%contents(my_facet_index)%dim_size_defns(&
            writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions) .eq. "tfields") then
+        writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions=&
+             writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions-1
+      end if      
+      if (writer_entries(writer_entry_index)%contents(my_facet_index)%dim_size_defns(&
+           writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions) .eq. "cafields") then
         writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions=&
              writer_entries(writer_entry_index)%contents(my_facet_index)%dimensions-1
       end if      

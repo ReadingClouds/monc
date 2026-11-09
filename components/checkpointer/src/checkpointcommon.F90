@@ -76,7 +76,15 @@ module checkpointer_common_mod
                                   NRADTRACERS_KEY="nradtracers", &
                                   TRACER_DIM_KEY="tracer", &
                                   TRACER_KEY = "tracer", &                !< Tracer variable NetCDF key
-                                  ZTRACER_KEY = "ztracer"
+                                  ZTRACER_KEY = "ztracer", &
+                                  CA_KEY = "ca", &
+                                  ZCA_KEY = "zca", &
+                                  CA_DIM_KEY = "ca", &
+                                  NCAFIELDS = "ncafields", &
+                                  CA_INDICES_DIM_KEY = "active_ca_indicies", &
+                                  CA_INDICES_KEY = "ca_indicies", &
+                                  CA_FIELD_ANONYMOUS_NAME = "ca_cafield", &
+                                  ZCA_FIELD_ANONYMOUS_NAME = "zca_cafield"
 
   integer, parameter :: MAX_STRING_LENGTH = 100   !< Maximum string length (stored size)
 

@@ -22,10 +22,13 @@ module checkpointer_read_checkpoint_mod
        MAX_STRING_LENGTH, THREF, OLUBAR, OLZUBAR, OLVBAR, OLZVBAR, OLTHBAR, OLZTHBAR, OLQBAR, OLZQBAR, OLQBAR_ANONYMOUS_NAME, &
        OLZQBAR_ANONYMOUS_NAME, RAD_LAST_TIME_KEY, LAST_CFL_TIMESTEP_KEY, STH_LW_KEY, STH_SW_KEY, check_status, &
        remove_null_terminator_from_string, WUP, WDWN, TRACER_DIM_KEY, TRACER_KEY, ZTRACER_KEY, NTRACERS_KEY, NRADTRACERS_KEY, &
-       NORMAL_STEP_KEY, RECONFIG_TIMESTEP_OFFSET_KEY
+       NORMAL_STEP_KEY, RECONFIG_TIMESTEP_OFFSET_KEY, CA_DIM_KEY, CA_KEY, ZCA_KEY, NCAFIELDS, CA_INDICES_DIM_KEY, &
+       CA_INDICES_KEY, CA_FIELD_ANONYMOUS_NAME, ZCA_FIELD_ANONYMOUS_NAME
+
   use datadefn_mod, only : DEFAULT_PRECISION
   use q_indices_mod, only : q_metadata_type, set_q_index, get_q_index, get_indices_descriptor, standard_q_names
   use tracers_mod, only : get_tracer_name, reinitialise_trajectories, get_tracer_options, trajectories_enabled
+  use ca_indices_mod, only : ca_metadata_type, set_ca_index, get_ca_index, get_ca_indices_descriptor, standard_ca_names
 
   implicit none
 
@@ -56,6 +59,8 @@ contains
     call decompose_grid(current_state)
 
     call load_q_indices(ncid)    
+    call load_ca_indices(ncid)    
+
     call load_misc(current_state, ncid)
     call load_all_fields(current_state, ncid)
     call initalise_source_and_sav_fields(current_state)  
@@ -67,6 +72,26 @@ contains
       ! Retrieve standard q indices
       current_state%water_vapour_mixing_ratio_index=get_q_index(standard_q_names%VAPOUR, 'checkpoint')
       current_state%liquid_water_mixing_ratio_index=get_q_index(standard_q_names%CLOUD_LIQUID_MASS, 'checkpoint')
+    end if
+
+    if (current_state%number_ca_fields .gt. 0) then
+      ! Retrieve standard ca indices
+      current_state%tke_index    =get_ca_index(standard_ca_names%TKE , 'checkpoint') 
+      current_state%thl_thl_index=get_ca_index(standard_ca_names%THL_THL , 'checkpoint')
+      current_state%qt_qt_index  =get_ca_index(standard_ca_names%QT_QT , 'checkpoint') 
+      current_state%thl_qt_index =get_ca_index(standard_ca_names%THL_QT , 'checkpoint') 
+      current_state%u_u_index    =get_ca_index(standard_ca_names%U_U , 'checkpoint')
+      current_state%u_v_index    =get_ca_index(standard_ca_names%U_V , 'checkpoint') 
+      current_state%u_w_index    =get_ca_index(standard_ca_names%U_W , 'checkpoint') 
+      current_state%v_v_index    =get_ca_index(standard_ca_names%V_V , 'checkpoint') 
+      current_state%v_w_index    =get_ca_index(standard_ca_names%V_W , 'checkpoint') 
+      current_state%w_w_index    =get_ca_index(standard_ca_names%W_W , 'checkpoint')
+      current_state%u_thl_index  =get_ca_index(standard_ca_names%U_THL , 'checkpoint') 
+      current_state%v_thl_index  =get_ca_index(standard_ca_names%V_THL , 'checkpoint') 
+      current_state%w_thl_index  =get_ca_index(standard_ca_names%W_THL , 'checkpoint')
+      current_state%u_qt_index   =get_ca_index(standard_ca_names%U_QT , 'checkpoint') 
+      current_state%v_qt_index   =get_ca_index(standard_ca_names%V_QT , 'checkpoint')
+      current_state%w_qt_index   =get_ca_index(standard_ca_names%W_QT , 'checkpoint')
     end if
 
     if ( current_state%reconfig_run ) then
@@ -164,6 +189,13 @@ contains
         current_state%stracer(i)%data(:,:,:) = 0.
       end do
     end if
+    if (current_state%number_ca_fields >0) then
+      do i=1,current_state%number_ca_fields
+        current_state%sca(i)%active=.true.
+        allocate(current_state%sca(i)%data(z_size, y_size, x_size))
+        current_state%sca(i)%data(:,:,:) = 0.
+      end do
+    end if
   end subroutine initalise_source_and_sav_fields
 
   !> Loads in misc data from the checkpoint file
@@ -189,6 +221,7 @@ contains
     ! Ignore tracer information in the case of a reconfiguration start. 
     ! Terms will be zero here and later be set from the new configuration specification.
     if (.not. current_state%reconfig_run) then
+      ! Tracers 
       call read_single_variable(ncid, NTRACERS_KEY, integer_data_1d=i_data)
       current_state%n_tracers = i_data(1)
       call read_single_variable(ncid, NRADTRACERS_KEY, integer_data_1d=i_data)
@@ -197,6 +230,9 @@ contains
       if (current_state%n_radioactive_tracers > 0) current_state%radioactive_tracer_index = &
                                                    current_state%n_tracers - current_state%n_radioactive_tracers + 1
     end if
+    ! Circle-A scheme
+    call read_single_variable(ncid, NCAFIELDS, integer_data_1d=i_data)
+    current_state%number_ca_fields = i_data(1)
     call read_single_variable(ncid, DTM_KEY, real_data_1d_double=r_data)
     current_state%dtm = r_data(1)
     call read_single_variable(ncid, DTM_NEW_KEY, real_data_1d_double=r_data)
@@ -292,8 +328,10 @@ contains
     integer :: i
     logical :: multi_process
     type(q_metadata_type) :: q_metadata
+    type(ca_metadata_type) :: ca_metadata
     character(len=STRING_LENGTH) :: q_field_name, zq_field_name
     character(len=STRING_LENGTH) :: tracer_field_name, ztracer_field_name
+    character(len=STRING_LENGTH) :: ca_field_name, zca_field_name
     
     multi_process = current_state%parallel%processes .gt. 1
 
@@ -387,6 +425,38 @@ contains
         end do      
       end if
     end if
+    if (current_state%number_ca_fields > 0) then
+      allocate(current_state%ca(current_state%number_ca_fields), current_state%zca(current_state%number_ca_fields), &
+           current_state%sca(current_state%number_ca_fields))
+      if (does_field_exist(ncid, CA_KEY)) then
+        do i=1,current_state%number_ca_fields
+          call load_single_3d_field(ncid, current_state%local_grid, current_state%ca(i), DUAL_GRID, &
+               DUAL_GRID, DUAL_GRID, CA_KEY, multi_process, i)
+          call load_single_3d_field(ncid, current_state%local_grid, current_state%zca(i), DUAL_GRID, &
+               DUAL_GRID, DUAL_GRID, ZCA_KEY, multi_process, i)
+        end do
+      else
+        do i=1,current_state%number_ca_fields
+          ca_metadata=get_ca_indices_descriptor(i)
+          ca_field_name=trim(CA_KEY)//"_"//trim(ca_metadata%name)
+          zca_field_name=trim(ZCA_KEY)//"_"//trim(ca_metadata%name)
+          if (.not. does_field_exist(ncid, ca_field_name)) then
+            ca_field_name=trim(CA_FIELD_ANONYMOUS_NAME)//"_"//trim(conv_to_string(i))
+            zca_field_name=trim(ZCA_FIELD_ANONYMOUS_NAME)//"_"//trim(conv_to_string(i))
+            if (.not. does_field_exist(ncid, ca_field_name)) then
+              call log_log(LOG_ERROR, "No entry in checkpoint file for ca field "//trim(conv_to_string(i)))
+            end if          
+          end if
+          if (.not. does_field_exist(ncid, zca_field_name)) then
+            call log_log(LOG_ERROR, "Missmatch between ca and zca field name in the checkpoint file")
+          end if
+          call load_single_3d_field(ncid, current_state%local_grid, current_state%ca(i), DUAL_GRID, &
+               DUAL_GRID, DUAL_GRID, ca_field_name, multi_process)
+          call load_single_3d_field(ncid, current_state%local_grid, current_state%zca(i), DUAL_GRID, &
+               DUAL_GRID, DUAL_GRID, zca_field_name, multi_process)
+        end do      
+      end if
+    end if
     if (does_field_exist(ncid, STH_LW_KEY)) then
        call load_single_3d_field(ncid, current_state%local_grid, current_state%sth_lw, DUAL_GRID, &
             DUAL_GRID, DUAL_GRID, STH_LW_KEY, multi_process)
@@ -447,6 +517,44 @@ contains
     end if
   end function get_number_q_indices  
 
+  !> Loads the ca indices (if they exist) into the model ca index register
+  !! @param ncid The NetCDF file id
+  subroutine load_ca_indices(ncid)
+    integer, intent(in) :: ncid
+
+    integer :: number_ca_indices, i, ca_indices_id
+    character(len=MAX_STRING_LENGTH) :: key, value
+
+    number_ca_indices=get_number_ca_indices(ncid)
+    if (number_ca_indices .gt. 0) then
+      call check_status(nf90_inq_varid(ncid, CA_INDICES_KEY, ca_indices_id))
+      do i=1, number_ca_indices
+        call check_status(nf90_get_var(ncid, ca_indices_id, key, (/ 1, 1, i /)))
+        call check_status(nf90_get_var(ncid, ca_indices_id, value, (/ 1, 2, i /)))
+        call remove_null_terminator_from_string(key)
+        call remove_null_terminator_from_string(value)
+        call set_ca_index(conv_to_integer(trim(value)), key)
+      end do
+    end if
+  end subroutine load_ca_indices
+
+  !> Retrieve sthe number of ca index entries in the NetCDF. This is optional, so may return 0
+  !! @param ncid The NetCDF file id
+  integer function get_number_ca_indices(ncid)
+    integer, intent(in) :: ncid
+
+    integer :: ca_indices_dimid, ca_indices_dim
+    logical :: found_flag
+
+    call check_status(nf90_inq_dimid(ncid, CA_INDICES_DIM_KEY, ca_indices_dimid), found_flag)
+    if (found_flag) then
+      call check_status(nf90_inquire_dimension(ncid, ca_indices_dimid, len=ca_indices_dim))
+      get_number_ca_indices=ca_indices_dim
+    else
+      get_number_ca_indices=0
+    end if
+  end function get_number_ca_indices 
+  
   !> Loads in and initialises a single 3D prognostic field. Even if the model is being run in 1 or 2D, the fields
   !! are still stored in 3D with the missing dimension sizes being set to one.
   !! @param ncid The NetCDF file id

@@ -1,0 +1,28 @@
+<!--  Please enter any necessary conditions for the use of these diagnostics here.
+
+-->
+
+<data-definition name="circle_a_fields_data" frequency="{3d_sampling_frequency}" namespace="circle_a_fieldsns"> 
+  <field name="smag_tke" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="tke_shear_prod" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="tke_buoyant_prod" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="tke_total_prod" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="tke_dissipation" type="array" data_type="double" size="zn,y,x" collective=true optional=true/>
+  <field name="smag_viscosity" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="smag_diffusivity" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="tke_viscosity" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="tke_diffusivity" type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+</data-definition>
+
+<group name="circle_a_fields" namespace="circle_a_fieldsns"> 
+  <member name="smag_tke"/> 
+  <member name="tke_shear_prod"/> 
+  <member name="tke_buoyant_prod"/> 
+  <member name="tke_total_prod"/> 
+  <member name="tke_dissipation"/> 
+  <member name="smag_viscosity"/> 
+  <member name="smag_diffusivity"/> 
+  <member name="tke_viscosity"/> 
+  <member name="tke_diffusivity"/> 
+</group> 
+

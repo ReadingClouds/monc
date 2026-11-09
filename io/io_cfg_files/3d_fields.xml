@@ -5,6 +5,7 @@
   <field name="th" type="array" data_type="double" size="zn,y,x" collective=true optional=true/> 
   <field name="p" type="array" data_type="double" size="zn,y,x" collective=true optional=true/> 
   <field name="q" type="array" data_type="double" size="zn,y,x,qfields" collective=true optional=true/> 
+  <field name="ca" type="array" data_type="double" size="zn,y,x,cafields" collective=true optional=true/> 
 </data-definition> 
 
 <group name="3d_fields" namespace="3d_fieldsns"> 
@@ -14,4 +15,5 @@
   <member name="th"/> 
   <member name="p"/> 
   <member name="q"/> 
+  <member name="ca"/> 
 </group> 

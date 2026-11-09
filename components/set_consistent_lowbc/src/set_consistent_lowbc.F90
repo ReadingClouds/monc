@@ -9,6 +9,7 @@ module set_consistent_lowbc_mod
                         model_state_type
   use grids_mod, only : Z_INDEX
   use q_indices_mod, only: get_q_index, standard_q_names
+  use ca_indices_mod, only: get_ca_index, standard_ca_names
 
   logical :: advect_flow, advect_th, advect_q
 
@@ -60,6 +61,9 @@ contains
     endif
     if (current_state%n_tracers .gt. 0) then
        call set_tracer_lowbc(current_state, current_x_index, current_y_index)
+    endif
+    if (current_state%number_ca_fields .gt. 0) then
+       call set_ca_lowbc(current_state, current_x_index, current_y_index)
     endif
   end subroutine timestep_callback
 
@@ -140,5 +144,20 @@ contains
     endif
 
   end subroutine set_tracer_lowbc
+
+  subroutine set_ca_lowbc(current_state, current_x_index, current_y_index)
+    type(model_state_type), target, intent(inout) :: current_state
+    integer, intent(in) ::  current_x_index, current_y_index
+
+    integer :: i  
+    
+    if (current_state%number_ca_fields .gt. 0) then
+       do n=1,current_state%number_ca_fields
+          current_state%sca(n)%data(1, current_y_index, current_x_index)= &
+               current_state%sca(n)%data(2,current_y_index, current_x_index)
+       enddo
+    endif
+
+  end subroutine set_ca_lowbc
 
 end module set_consistent_lowbc_mod

@@ -157,6 +157,18 @@ contains
         page_bookmark=page_bookmark + 1        
       end do
     end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
+          call copy_buffer_to_corner(current_state%local_grid, neighbour_description%recv_corner_buffer, &
+               current_state%ca(i)%data, corner_loc, x_target_index, y_target_index, page_bookmark)
+          page_bookmark=page_bookmark + 1
+          call copy_buffer_to_corner(current_state%local_grid, neighbour_description%recv_corner_buffer, &
+               current_state%zca(i)%data, corner_loc, x_target_index, y_target_index, page_bookmark)
+          page_bookmark=page_bookmark + 1        
+        end if
+      end do
+    end if
 
     current_page(neighbour_location)=page_bookmark
   end subroutine copy_halo_buffer_to_corners
@@ -226,14 +238,26 @@ contains
        end if
     end do
     if (current_state%n_tracers .gt. 0) then
-       do i=1, current_state%n_tracers
+      do i=1, current_state%n_tracers
+        call copy_buffer_to_field(current_state%local_grid, neighbour_description%recv_halo_buffer, &
+             current_state%tracer(i)%data, dim, target_index, page_bookmark)
+        page_bookmark=page_bookmark+1
+        call copy_buffer_to_field(current_state%local_grid, neighbour_description%recv_halo_buffer, &
+             current_state%ztracer(i)%data, dim, target_index, page_bookmark)
+        page_bookmark=page_bookmark+1        
+      end do
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
           call copy_buffer_to_field(current_state%local_grid, neighbour_description%recv_halo_buffer, &
-               current_state%tracer(i)%data, dim, target_index, page_bookmark)
+               current_state%ca(i)%data, dim, target_index, page_bookmark)
           page_bookmark=page_bookmark+1
           call copy_buffer_to_field(current_state%local_grid, neighbour_description%recv_halo_buffer, &
-               current_state%ztracer(i)%data, dim, target_index, page_bookmark)
+               current_state%zca(i)%data, dim, target_index, page_bookmark)
           page_bookmark=page_bookmark+1        
-       end do
+        end if
+      end do
     end if
     current_page(neighbour_location)=page_bookmark
   end subroutine copy_halo_buffer_to_field
@@ -319,6 +343,20 @@ contains
              neighbour_description%send_halo_buffer, &
              current_state%ztracer(i)%data, dim, source_index, page_bookmark)
         page_bookmark = page_bookmark + 1        
+      end do
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
+          call copy_field_to_buffer(current_state%local_grid, &
+                 neighbour_description%send_halo_buffer, current_state%ca(i)%data, dim, &
+                 source_index, page_bookmark)
+          page_bookmark = page_bookmark + 1
+          call copy_field_to_buffer(current_state%local_grid, &
+               neighbour_description%send_halo_buffer, &
+               current_state%zca(i)%data, dim, source_index, page_bookmark)
+          page_bookmark = page_bookmark + 1        
+        end if
       end do
     end if
     current_page(pid_location) = page_bookmark
@@ -414,6 +452,20 @@ contains
         page_bookmark=page_bookmark+1        
       end do
     end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
+          call copy_corner_to_buffer(current_state%local_grid, &
+               neighbour_description%send_corner_buffer, &
+               current_state%ca(i)%data, corner_loc, x_source_index, y_source_index, page_bookmark)
+          page_bookmark=page_bookmark+1
+          call copy_corner_to_buffer(current_state%local_grid, &
+               neighbour_description%send_corner_buffer, &
+               current_state%zca(i)%data, corner_loc, x_source_index, y_source_index, page_bookmark)
+          page_bookmark=page_bookmark+1        
+        end if
+      end do
+    end if
     current_page(pid_location)=page_bookmark
   end subroutine copy_corners_to_halo_buffer
 
@@ -446,6 +498,13 @@ contains
     if (current_state%n_tracers .gt. 0) then
       do i=1, current_state%n_tracers
         get_fields_per_halo_cell=get_fields_per_halo_cell+2
+      end do
+    end if
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
+          get_fields_per_halo_cell=get_fields_per_halo_cell+2
+        end if
       end do
     end if
   end function get_fields_per_halo_cell    
@@ -515,6 +574,16 @@ contains
              current_state%parallel%my_rank, halo_depth, involve_corners)
         call perform_local_data_copy_for_field(current_state%ztracer(i)%data, current_state%local_grid, &
              current_state%parallel%my_rank, halo_depth, involve_corners)
+      end do
+    end if    
+    if (current_state%number_ca_fields .gt. 0) then
+      do i=1, current_state%number_ca_fields
+        if (current_state%ca(i)%active) then
+          call perform_local_data_copy_for_field(current_state%ca(i)%data, current_state%local_grid, &
+               current_state%parallel%my_rank, halo_depth, involve_corners)
+          call perform_local_data_copy_for_field(current_state%zca(i)%data, current_state%local_grid, &
+               current_state%parallel%my_rank, halo_depth, involve_corners)
+        end if
       end do
     end if    
   end subroutine perform_local_data_copy_for_all_prognostics

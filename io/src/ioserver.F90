@@ -16,7 +16,7 @@ module io_server_mod
        check_diagnostic_federator_for_completion, pass_fields_to_diagnostics_federator, determine_diagnostics_fields_available
   use writer_federator_mod, only : initialise_writer_federator, finalise_writer_federator, check_writer_for_trigger, &
        inform_writer_federator_fields_present, inform_writer_federator_time_point, provide_q_field_names_to_writer_federator, &
-       provide_tracer_names_to_writer_federator, any_pending
+       provide_tracer_names_to_writer_federator, provide_ca_field_names_to_writer_federator, any_pending
   use writer_field_manager_mod, only : initialise_writer_field_manager, finalise_writer_field_manager, &
        provide_monc_data_to_writer_federator
   use collections_mod, only : hashset_type, hashmap_type, map_type, iterator_type, c_get_integer, c_put_integer, c_is_empty, &
@@ -24,16 +24,18 @@ module io_server_mod
   use conversions_mod, only : conv_to_string
   use string_utils_mod, only : replace_character
   use io_server_client_mod, only : REGISTER_COMMAND, DEREGISTER_COMMAND, INTER_IO_COMMUNICATION, DATA_COMMAND_START, DATA_TAG, &
-       LOCAL_SIZES_KEY, LOCAL_START_POINTS_KEY, LOCAL_END_POINTS_KEY, NUMBER_Q_INDICIES_KEY, SCALAR_FIELD_TYPE, &
-       data_sizing_description_type, definition_description_type, field_description_type, build_mpi_type_data_sizing_description,&
-       get_data_description_from_name, build_mpi_type_field_description, build_mpi_type_definition_description
+       LOCAL_SIZES_KEY, LOCAL_START_POINTS_KEY, LOCAL_END_POINTS_KEY, NUMBER_Q_INDICIES_KEY, NUMBER_CA_INDICIES_KEY, &
+       SCALAR_FIELD_TYPE, data_sizing_description_type, definition_description_type, field_description_type, &
+       build_mpi_type_data_sizing_description, get_data_description_from_name, build_mpi_type_field_description, &
+       build_mpi_type_definition_description
   use forthread_mod, only : forthread_rwlock_rdlock, forthread_rwlock_wrlock, forthread_rwlock_tryrdlock, &
        forthread_rwlock_unlock, forthread_rwlock_init, forthread_rwlock_destroy, forthread_mutex_init, forthread_mutex_lock, &
        forthread_mutex_unlock, forthread_cond_wait, forthread_cond_signal, forthread_cond_init
   use threadpool_mod, only : threadpool_init, threadpool_finalise, threadpool_start_thread, check_thread_status, &
+  
        threadpool_deactivate, threadpool_is_idle
   use global_callback_inter_io_mod, only : perform_global_callback
-  use logging_mod, only : LOG_ERROR, LOG_WARN, log_log, initialise_logging
+  use logging_mod, only : LOG_ERROR, LOG_WARN, LOG_DEBUG, log_log, log_master_log, initialise_logging
   use optionsdatabase_mod, only : options_get_logical, options_get_string
   use mpi, only : MPI_COMM_WORLD, MPI_STATUSES_IGNORE, MPI_BYTE, MPI_INT
   use io_server_state_reader_mod, only : read_io_server_configuration
@@ -55,6 +57,8 @@ module io_server_mod
   integer, dimension(:,:), allocatable :: sample_output_pairs
 
   integer, volatile :: monc_registration_lock
+  
+  character(len=1000) :: output_str
 
   public io_server_run
 contains
@@ -280,7 +284,8 @@ contains
            deallocate(io_configuration%registered_moncs(i)%field_end_locations)
       if (allocated(io_configuration%registered_moncs(i)%definition_names)) &
            deallocate(io_configuration%registered_moncs(i)%definition_names)
-      if (allocated(io_configuration%registered_moncs(i)%dimensions)) deallocate(io_configuration%registered_moncs(i)%dimensions)
+      if (allocated(io_configuration%registered_moncs(i)%dimensions)) &
+           deallocate(io_configuration%registered_moncs(i)%dimensions)
     end do
   end subroutine free_individual_registered_monc_aspects  
 
@@ -465,12 +470,15 @@ contains
     integer, intent(in) :: source
     type(io_configuration_registered_monc_type), intent(inout) :: monc_defn
 
-    type(data_sizing_description_type) :: data_description(io_configuration%number_of_distinct_data_fields+4)
+    type(data_sizing_description_type) :: data_description(io_configuration%number_of_distinct_data_fields+5)
     integer :: created_mpi_type, data_size, recv_count, i
     type(data_sizing_description_type) :: field_description
     logical :: field_found
+ 
+    call log_master_log(LOG_DEBUG, "init_data_definition")
+
     
-    recv_count=data_receive(mpi_type_data_sizing_description, io_configuration%number_of_distinct_data_fields+4, &
+    recv_count=data_receive(mpi_type_data_sizing_description, io_configuration%number_of_distinct_data_fields+5, &
          source, description_data=data_description)
 
     call handle_monc_dimension_information(data_description, monc_defn)
@@ -487,7 +495,15 @@ contains
     if (.not. initialised_present_data) then
       initialised_present_data=.true.
       field_found=get_data_description_from_name(data_description, NUMBER_Q_INDICIES_KEY, field_description)
-      call c_put_integer(io_configuration%dimension_sizing, "active_q_indicies", field_description%dim_sizes(1))
+      call c_put_integer(io_configuration%dimension_sizing, "active_q_indicies", field_description%dim_sizes(1))     
+      write(output_str,*)"init_data_definition active_q_indicies ", field_description
+      call log_master_log(LOG_DEBUG, trim(output_str))
+      
+      field_found=get_data_description_from_name(data_description, NUMBER_CA_INDICIES_KEY, field_description)
+      call c_put_integer(io_configuration%dimension_sizing, "active_ca_indicies", field_description%dim_sizes(1))
+      write(output_str,*)"init_data_definition active_ca_indicies ", field_description
+      call log_master_log(LOG_DEBUG, trim(output_str))
+      
       call register_present_field_names_to_federators(data_description, recv_count)
     end if
     call get_monc_information_data(source)
@@ -500,19 +516,27 @@ contains
     integer, intent(in) :: source
 
     character, dimension(:), allocatable :: buffer
-    character(len=STRING_LENGTH) :: q_field_name, tracer_name, cd_field_name
-    integer :: buffer_size, z_size, num_q_fields, num_tracers, n, current_point, recv_count
+    character(len=STRING_LENGTH) :: q_field_name, tracer_name, cd_field_name, ca_field_name
+    integer :: buffer_size, z_size, num_q_fields, num_tracers, num_ca_fields, n, current_point, recv_count
     type(data_sizing_description_type) :: field_description
     real(kind=DEFAULT_PRECISION) :: dreal
     logical :: field_found
 
+    call log_master_log(LOG_DEBUG, "get_monc_information_data")
 
     z_size=c_get_integer(io_configuration%dimension_sizing, "z")
     num_q_fields=c_get_integer(io_configuration%dimension_sizing, "qfields")
     num_tracers=c_get_integer(io_configuration%dimension_sizing, "tfields")
+    num_ca_fields=c_get_integer(io_configuration%dimension_sizing, "cafields")
+    write(output_str,*)"num_q_fields: ",num_q_fields
+    call log_master_log(LOG_DEBUG, trim(output_str))
+    write(output_str,*)"num_tracers: ",num_tracers
+    call log_master_log(LOG_DEBUG, trim(output_str))
+    write(output_str,*)"num_ca_fields: ",num_ca_fields
+    call log_master_log(LOG_DEBUG, trim(output_str))
 
-    buffer_size=(kind(dreal)*z_size)*2 + (STRING_LENGTH * num_q_fields) + STRING_LENGTH * num_tracers &
-                 + 2*ncond*STRING_LENGTH + 2*ndiag*STRING_LENGTH 
+    buffer_size=(kind(dreal)*z_size)*2 + (STRING_LENGTH * num_q_fields) + (STRING_LENGTH * num_tracers) &
+                 + (STRING_LENGTH * num_ca_fields) + 2*ncond*STRING_LENGTH + 2*ndiag*STRING_LENGTH 
     allocate(buffer(buffer_size))
     recv_count=data_receive(MPI_BYTE, buffer_size, source, buffer)
     if (.not. io_configuration%general_info_set) then
@@ -523,11 +547,13 @@ contains
         allocate(io_configuration%z_field(z_size))
         io_configuration%zn_field=transfer(buffer(1:kind(dreal)*z_size), io_configuration%zn_field)
         current_point=(kind(dreal)*z_size)
+        
         if (num_q_fields .gt. 0) then
           do n=1, num_q_fields
             q_field_name=transfer(buffer(current_point+1:current_point+STRING_LENGTH), q_field_name)
             current_point=current_point+STRING_LENGTH
             call replace_character(q_field_name, " ", "_")
+            call log_master_log(LOG_DEBUG, "Transferring '"//trim(q_field_name)//"'")
             call c_add_string(io_configuration%q_field_names, q_field_name)
           end do
         end if
@@ -536,7 +562,18 @@ contains
           do n=1, num_tracers
             tracer_name=transfer(buffer(current_point+1:current_point+STRING_LENGTH), tracer_name)
             current_point=current_point+STRING_LENGTH
+            call log_master_log(LOG_DEBUG, "Transferring '"//trim(tracer_name)//"'")
             call c_add_string(io_configuration%tracer_names, tracer_name)
+          end do
+        end if
+
+        if (num_ca_fields .gt. 0) then
+          do n=1, num_ca_fields
+            ca_field_name=transfer(buffer(current_point+1:current_point+STRING_LENGTH), ca_field_name)
+            current_point=current_point+STRING_LENGTH
+!            call replace_character(ca_field_name, " ", "_")
+            call log_master_log(LOG_DEBUG, "Transferring '"//trim(ca_field_name)//"'")
+            call c_add_string(io_configuration%ca_field_names, ca_field_name)
           end do
         end if
 
@@ -561,6 +598,7 @@ contains
       end if
       call provide_q_field_names_to_writer_federator(io_configuration%q_field_names)
       call provide_tracer_names_to_writer_federator(io_configuration%tracer_names)
+      call provide_ca_field_names_to_writer_federator(io_configuration%ca_field_names)
       call check_thread_status(forthread_mutex_unlock(io_configuration%general_info_mutex))
     end if
     deallocate(buffer)
@@ -581,12 +619,16 @@ contains
 
     do i=1, recv_count
       call c_add_string(present_field_names, data_description(i)%field_name)
+      call log_master_log(LOG_DEBUG, "register_present_field_names_to_federators field_name '"//&
+        trim(data_description(i)%field_name)//"'.")
     end do
     do i=1, io_configuration%number_of_data_definitions
       do j=1, io_configuration%data_definitions(i)%number_of_data_fields
         if (io_configuration%data_definitions(i)%fields(j)%field_type == SCALAR_FIELD_TYPE .and. .not. &
              io_configuration%data_definitions(i)%fields(j)%optional) then
           call c_add_string(present_field_names, io_configuration%data_definitions(i)%fields(j)%name)
+          call log_master_log(LOG_DEBUG, "register_present_field_names_to_federators name '"//&
+            trim(io_configuration%data_definitions(i)%fields(j)%name)//"'.")
         end if        
       end do      
     end do

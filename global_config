@@ -18,6 +18,7 @@ termination_check_enabled=.true.
 buoyancy_enabled=.true.
 cfltest_enabled=.true.
 checkpointer_enabled=.true.
+circle_a_enabled=.false.
 coriolis_enabled=.false.
 damping_enabled=.false.
 debugger_enabled=.false.
@@ -45,6 +46,7 @@ scalar_diagnostics_enabled=.false.
 set_consistent_lowbc_enabled=.true.
 setfluxlook_enabled=.true.
 simplecloud_enabled=.false. 
+gaussiancloud_enabled=.false. 
 simplesetup_enabled=.false.
 smagorinsky_enabled=.false.
 subgrid_profile_diagnostics_enabled=.false.
@@ -66,6 +68,7 @@ tracers_enabled=.false.
 trajectories_enabled=.false.
 radioactive_tracers_enabled=.false.
 
+
 # Default disable the test case components (individual user config will enable these)
 bubble_enabled=.false.
 drybl_enabled=.false.
@@ -84,8 +87,8 @@ pressure-terms_group_type=column
 last_group_type=entire
 
 start_group_contents=clearsourceterms, stepping_direction, halo_swapper, lateral_bcs, setfluxlook
-subgrid_group_contents=lower_bc, smagorinsky
-dynamics_group_contents=kidtestcase, pw_advection, tvd_advection, th_advection, diffusion, viscosity, coriolis, buoyancy, damping, forcing, set_consistent_lowbc, socrates_couple, lwrad_exponential, simplecloud, casim, tracers, flux_budget, subgrid_profile_diagnostics, diverr, psrce, diagnostics_3d, profile_diagnostics, casim_profile_dgs, scalar_diagnostics, immersed_boundary, ib_finalise, vert_filter, stepfields
+subgrid_group_contents=lower_bc, smagorinsky, circle_a
+dynamics_group_contents=kidtestcase, pw_advection, tvd_advection, th_advection, diffusion, viscosity, coriolis, buoyancy, damping, forcing, set_consistent_lowbc, socrates_couple, lwrad_exponential, simplecloud, gaussiancloud, casim, tracers, flux_budget, subgrid_profile_diagnostics, diverr, psrce, diagnostics_3d, profile_diagnostics, casim_profile_dgs, scalar_diagnostics, immersed_boundary, ib_finalise, vert_filter, stepfields
 
 solver_group_contents=pdf_analysis, mean_profiles, fftsolver, filter, iterativesolver, iterativesolver_single_prec, petsc_solver, cfltest
 pressure-terms_group_contents=pstep, swap_smooth, conditional_diagnostics_column
@@ -93,8 +96,8 @@ last_group_contents=conditional_diagnostics_whole, checkpointer, model_synopsis,
 
 # Component ordering for other stages
 
-initialisation_stage_ordering=decomposition, kidreader, kidtestcase, checkpointer, simplesetup, grid_manager, mean_profiles, swap_smooth, termination_check, simplecloud, casim, tracers, coriolis, buoyancy, cfltest, damping, diverr, fftsolver, filter, halo_swapper, iterativesolver, iterativesolver_single_prec, setfluxlook, lower_bc, physicsa, psrce, pw_advection, diffusion, set_consistent_lowbc, viscosity, smagorinsky, stepfields, stepping_direction, tvd_advection, model_synopsis, socrates_couple, lwrad_exponential, th_advection, randomnoise, forcing, immersed_boundary, ib_finalise, vert_filter, flux_budget, diagnostics_3d, profile_diagnostics, casim_profile_dgs, conditional_diagnostics_column, conditional_diagnostics_whole, pdf_analysis, subgrid_profile_diagnostics, scalar_diagnostics, lateral_bcs, petsc_solver, pstep, iobridge
-finalisation_stage_ordering=iobridge, checkpointer, diverr, fftsolver, filter, grid_manager, halo_swapper, iterativesolver, iterativesolver_single_prec, physicsa, psrce, smagorinsky, tvd_advection, socrates_couple, lwrad_exponential, model_synopsis, mean_profiles, pdf_analysis, forcing, immersed_boundary,  ib_finalise, vert_filter, stepfields, flux_budget, coriolis, buoyancy, diffusion, lower_bc, viscosity, profile_diagnostics, pw_advection, th_advection, damping, simplecloud, tracers, pstep, conditional_diagnostics_whole, conditional_diagnostics_column
+initialisation_stage_ordering=decomposition, kidreader, kidtestcase, checkpointer, simplesetup, grid_manager, mean_profiles, swap_smooth, termination_check, simplecloud, casim, tracers, coriolis, buoyancy, cfltest, damping, diverr, fftsolver, halo_swapper, iterativesolver, iterativesolver_single_prec, setfluxlook, lower_bc, physicsa, psrce, pw_advection, diffusion, set_consistent_lowbc, viscosity, smagorinsky, circle_a, gaussiancloud, stepfields, stepping_direction, tvd_advection, model_synopsis, socrates_couple, lwrad_exponential, th_advection, randomnoise, forcing, immersed_boundary, ib_finalise, vert_filter, flux_budget, diagnostics_3d, profile_diagnostics, casim_profile_dgs, conditional_diagnostics_column, conditional_diagnostics_whole, pdf_analysis, subgrid_profile_diagnostics, scalar_diagnostics, lateral_bcs, petsc_solver, pstep, iobridge
+finalisation_stage_ordering=iobridge, checkpointer, diverr, fftsolver, grid_manager, halo_swapper, iterativesolver, iterativesolver_single_prec, physicsa, psrce, smagorinsky, circle_a, tvd_advection, socrates_couple, lwrad_exponential, model_synopsis, mean_profiles, pdf_analysis, forcing, immersed_boundary,  ib_finalise, vert_filter, stepfields, flux_budget, coriolis, buoyancy, diffusion, lower_bc, viscosity, profile_diagnostics, pw_advection, th_advection, damping, simplecloud, gaussiancloud, tracers, pstep, conditional_diagnostics_whole, conditional_diagnostics_column
 
 # Control configuration
 nn_timesteps=-1
@@ -119,7 +122,7 @@ print_debug_data=.false.         # Prints data for specific variables/point afte
 pdd_x=-999                       # global grid x coordinate of print_debug_data grid point
 pdd_y=-999                       #   "     "   y   "          "              " 
 pdd_z=-999                       #   "     "   z   "          "              " 
-l_thoff=.false.                  # When .true., disables threading in the IOserver
+l_thoff=.true.                  # When .true., disables threading in the IOserver
 
 #Tracer configuration
 traj_interval=                   # name of config variable used to set 3d_tracers output_frequency
@@ -246,6 +249,7 @@ kgd=10
 hgd=10.0
 zztop=1.0
 number_q_fields=0
+number_ca_fields=0
 rhobous=1.0
 thref0=288.0
 surface_pressure=100000.0
@@ -288,7 +292,11 @@ l_init_pl_rh=.false.
 l_matchthref=.false.
 l_thref=.false.
 
+n_thref_smooth=10
+thref_smooth_factor=0.25
+
 # Smagorinsky configuration
+use_mixing_length_param=.false.
 # Default values for the smagorinsky subgrid constants
 smag-subb=40.0
 smag-subc=16.0
@@ -296,6 +304,7 @@ smag-subc=16.0
 # of Brown (1999)
 # smag-subb=1.43
 # smag-subc=1.43
+mixing_length_param_level=1
 
 # Temporary switch to force the
 # LEM dissipation rate diagnostic. This should
@@ -663,3 +672,18 @@ l_rcemip_ozone=.false.
 l_rcemip_gases=.false.
 l_rcemip_lowerbc=.false.
 #l_rcemip_tracers=.false. # To implement, see ticket #376/349 for branch monc/main/branches/dev/toddjones/vn0.9.0_RCEMIP
+
+
+#gaussian_cloud options
+# use either single or double Gaussian scheme
+# choose simple, single or double
+gaussian=single
+
+
+# Circle-a options
+circle_a_level=L2.0
+use_total_fluxes=.false.
+diffuse_ca_progs=.true.
+number_ca_fields=16
+
+

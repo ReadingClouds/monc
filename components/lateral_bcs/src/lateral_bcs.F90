@@ -188,7 +188,7 @@ contains
 
     INTEGER :: istart, iend, jstart, jend, kstart, kend
 
-    INTEGER :: i,j,k,iq,it
+    INTEGER :: i,j,k,iq,it, ica
 
     do i=istart, iend
       do j=jstart, jend
@@ -221,6 +221,15 @@ contains
         do j=jstart, jend
           do k=kstart,kend
             current_state%tracer(it)%data(k,j,i) = current_state%ztracer(it)%data(k,j,i) 
+          end do
+        end do
+      end do
+    end do
+    do ica = 1, current_state%number_ca_fields
+      do i=istart, iend
+        do j=jstart, jend
+          do k=kstart,kend
+            current_state%ca(ica)%data(k,j,i) = current_state%zca(ica)%data(k,j,i) 
           end do
         end do
       end do

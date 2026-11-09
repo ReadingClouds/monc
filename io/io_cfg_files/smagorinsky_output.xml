@@ -1,0 +1,10 @@
+<data-definition name="smagorinsky_output_data" frequency="{3d_sampling_frequency}" namespace="smagorinsky_outputns">
+  <field name="ssq"            type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+  <field name="Ri"             type="array" data_type="double" size="z,y,x" collective=true optional=true/>
+</data-definition>
+
+
+<group name="smagorinsky_output" namespace="smagorinsky_outputns">
+  <member name="ssq"           />
+  <member name="Ri"            />
+</group>
